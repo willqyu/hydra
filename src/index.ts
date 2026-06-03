@@ -6,7 +6,7 @@ export type { WorktreeInfo } from "./worktree.js";
 export { Registry } from "./registry.js";
 export type { RegistryEntry } from "./registry.js";
 export { ScriptWorkerRunner, ClaudeAgentRunner } from "./worker.js";
-export type { WorkerFn } from "./worker.js";
+export type { WorkerFn, WorkerFnResult } from "./worker.js";
 export { Orchestrator } from "./orchestrator.js";
 export type { OrchestratorOptions, TaskOutcome, RunResult } from "./orchestrator.js";
 export { MergeTool } from "./merge.js";
@@ -35,6 +35,8 @@ export type {
 } from "./resolver.js";
 export { Negotiator } from "./negotiator.js";
 export type { NegotiatorOptions } from "./negotiator.js";
+export { CheckpointManager } from "./checkpoint.js";
+export type { Checkpoint } from "./checkpoint.js";
 export type {
   TaskId,
   TaskSpec,

@@ -30,6 +30,8 @@ export interface WorkerResult {
   ok: boolean;
   /** HEAD commit sha on the task branch after the worker ran. */
   head?: string;
+  /** Distilled context to persist in the worker's checkpoint (decisions, intent). */
+  context?: string;
   error?: string;
 }
 

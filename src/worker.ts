@@ -1,6 +1,8 @@
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
-export type WorkerFn = (ctx: WorkerContext) => Promise<void> | void;
+/** A worker may return distilled context to be saved in its checkpoint. */
+export type WorkerFnResult = void | { context?: string };
+export type WorkerFn = (ctx: WorkerContext) => Promise<WorkerFnResult> | WorkerFnResult;
 
 /**
  * Runs a JS function as the worker body. The function does its work inside
@@ -16,8 +18,9 @@ export class ScriptWorkerRunner implements WorkerRunner {
     const fn = typeof this.fn === "function" ? this.fn : this.fn[ctx.taskId];
     if (!fn) return { ok: false, error: `no worker function for task ${ctx.taskId}` };
     try {
-      await fn(ctx);
-      return { ok: true, head: await ctx.git.head() };
+      const ret = await fn(ctx);
+      const context = ret && typeof ret === "object" ? ret.context : undefined;
+      return { ok: true, head: await ctx.git.head(), context };
     } catch (err: unknown) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

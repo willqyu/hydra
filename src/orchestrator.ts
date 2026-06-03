@@ -3,6 +3,7 @@ import { Git } from "./git.js";
 import { WorktreeManager } from "./worktree.js";
 import { Registry } from "./registry.js";
 import { TaskDag } from "./task-dag.js";
+import { CheckpointManager } from "./checkpoint.js";
 import type { TaskId, TaskSpec, WorkerContext, WorkerRunner } from "./types.js";
 
 export interface OrchestratorOptions {
@@ -18,6 +19,8 @@ export interface OrchestratorOptions {
   registryFile?: string;
   /** Remove a worktree after its worker finishes (branch retained). Default true. */
   cleanupWorktrees?: boolean;
+  /** Directory for worker checkpoints. Default <repoRoot>/.harness/checkpoints. */
+  checkpointDir?: string;
   logger?: (msg: string) => void;
 }
 
@@ -62,6 +65,9 @@ export class Orchestrator {
     const registry = await Registry.open(
       this.opts.registryFile ?? path.join(repoRoot, ".harness", "registry.json"),
     );
+    const checkpoints = new CheckpointManager(
+      this.opts.checkpointDir ?? path.join(repoRoot, ".harness", "checkpoints"),
+    );
 
     const outcomes = new Map<TaskId, TaskOutcome>();
     const active = new Map<TaskId, Promise<TaskId>>();
@@ -82,9 +88,23 @@ export class Orchestrator {
         const result = await this.opts.runner.run(ctx);
         if (!result.ok) throw new Error(result.error ?? "worker reported failure");
         const head = result.head ?? (await new Git(worktree).head());
+        const checkpoint = await checkpoints.save({
+          taskId: id,
+          branch: node.branch,
+          head,
+          description: node.description,
+          context: result.context,
+        });
         dag.setState(id, "completed");
         outcomes.set(id, { taskId: id, branch: node.branch, state: "completed", head });
-        await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "completed", head });
+        await registry.upsert({
+          taskId: id,
+          branch: node.branch,
+          worktree,
+          state: "completed",
+          head,
+          checkpoint,
+        });
         this.log(`✔ ${id} -> ${node.branch} @ ${head.slice(0, 8)}`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
