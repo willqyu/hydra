@@ -4,6 +4,7 @@ import { WorktreeManager } from "./worktree.js";
 import { Registry } from "./registry.js";
 import { TaskDag } from "./task-dag.js";
 import { CheckpointManager } from "./checkpoint.js";
+import { HarnessEvents } from "./events.js";
 import type { TaskId, TaskSpec, WorkerContext, WorkerRunner } from "./types.js";
 
 export interface OrchestratorOptions {
@@ -21,6 +22,8 @@ export interface OrchestratorOptions {
   cleanupWorktrees?: boolean;
   /** Directory for worker checkpoints. Default <repoRoot>/.harness/checkpoints. */
   checkpointDir?: string;
+  /** Emits task:* events for the live UI. */
+  events?: HarnessEvents;
   logger?: (msg: string) => void;
 }
 
@@ -75,6 +78,7 @@ export class Orchestrator {
     const runTask = async (id: TaskId): Promise<void> => {
       const node = dag.get(id);
       let worktree: string | undefined;
+      this.opts.events?.emitEvent({ type: "task:start", taskId: id, branch: node.branch });
       try {
         worktree = await wtm.add(node.branch, baseRef);
         await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "running" });
@@ -105,12 +109,14 @@ export class Orchestrator {
           head,
           checkpoint,
         });
+        this.opts.events?.emitEvent({ type: "task:done", taskId: id, branch: node.branch, head });
         this.log(`✔ ${id} -> ${node.branch} @ ${head.slice(0, 8)}`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         dag.setState(id, "failed");
         outcomes.set(id, { taskId: id, branch: node.branch, state: "failed", error: msg });
         await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "failed", error: msg });
+        this.opts.events?.emitEvent({ type: "task:fail", taskId: id, branch: node.branch, error: msg });
         this.log(`✘ ${id} (${node.branch}): ${msg}`);
       } finally {
         if (cleanup && worktree) {

@@ -37,6 +37,8 @@ export { Negotiator } from "./negotiator.js";
 export type { NegotiatorOptions } from "./negotiator.js";
 export { CheckpointManager } from "./checkpoint.js";
 export type { Checkpoint } from "./checkpoint.js";
+export { HarnessEvents } from "./events.js";
+export type { HarnessEvent } from "./events.js";
 export type {
   TaskId,
   TaskSpec,

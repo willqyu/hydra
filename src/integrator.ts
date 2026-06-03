@@ -1,8 +1,10 @@
 import path from "node:path";
+import { writeFile, mkdir } from "node:fs/promises";
 import { Git } from "./git.js";
 import { MergeTool } from "./merge.js";
 import { WorktreeManager } from "./worktree.js";
 import { execShell } from "./exec.js";
+import { HarnessEvents } from "./events.js";
 
 /** Result of asking a negotiator to resolve a conflict. */
 export interface ConflictResolution {
@@ -56,6 +58,11 @@ export interface IntegratorOptions {
   worktreeDir?: string;
   /** Conflict resolver (M3+). When absent, any conflict stops the train. */
   negotiator?: Negotiator;
+  /** Emits integrate:* / escalate events for the live UI. */
+  events?: HarnessEvents;
+  /** Where to persist the latest integration result. Default
+   *  <repoRoot>/.harness/integration.json. Pass null to disable. */
+  stateFile?: string | null;
   logger?: (m: string) => void;
 }
 
@@ -114,12 +121,24 @@ export class Integrator {
   async integrate(branches: string[]): Promise<IntegrationResult> {
     const steps: IntegrationStep[] = [];
     const wtPath = this.wtm.pathFor(this.integ);
+    this.opts.events?.emitEvent({ type: "integrate:start", branches });
 
     // Fresh staging branch at main, in its own worktree.
     await this.wtm.remove(this.integ, { force: true }).catch(() => {});
     await this.git.run(["branch", "-f", this.integ, this.main]);
     await this.git.run(["worktree", "add", wtPath, this.integ]);
     const wtGit = new Git(wtPath);
+
+    const recordStep = (step: IntegrationStep, replaceLast = false): void => {
+      if (replaceLast) steps[steps.length - 1] = step;
+      else steps.push(step);
+      this.opts.events?.emitEvent({
+        type: "integrate:step",
+        branch: step.branch,
+        status: step.status,
+        detail: step.detail,
+      });
+    };
 
     try {
       for (const branch of branches) {
@@ -128,12 +147,12 @@ export class Integrator {
 
         if (!merge.merged) {
           const step = await this.handleTextualConflict(wtGit, wtPath, branch, merge.conflictedFiles);
-          steps.push(step);
+          recordStep(step);
           if (step.status !== "resolved") {
-            return { promoted: false, steps }; // train halts; main untouched
+            return await this.finish({ promoted: false, steps }); // train halts; main untouched
           }
         } else {
-          steps.push({ branch, status: "merged" });
+          recordStep({ branch, status: "merged" });
         }
 
         // Test gate after every merge — this is where semantic conflicts surface.
@@ -141,10 +160,9 @@ export class Integrator {
           const t = await execShell(this.opts.testCommand, wtPath, { timeoutMs: this.opts.testTimeoutMs });
           if (t.code !== 0) {
             const step = await this.handleSemanticConflict(wtGit, wtPath, branch, t.stdout + t.stderr);
-            // overwrite the just-pushed step's status to reflect the gate outcome
-            steps[steps.length - 1] = step;
+            recordStep(step, true); // overwrite the just-pushed "merged" with the gate outcome
             if (step.status !== "resolved") {
-              return { promoted: false, steps };
+              return await this.finish({ promoted: false, steps });
             }
           }
         }
@@ -154,10 +172,25 @@ export class Integrator {
       const head = await wtGit.head();
       await this.git.run(["update-ref", `refs/heads/${this.main}`, head]);
       this.log(`✔ promoted ${this.main} -> ${head.slice(0, 8)}`);
-      return { promoted: true, mainHead: head, steps };
+      return await this.finish({ promoted: true, mainHead: head, steps });
     } finally {
       await this.wtm.remove(this.integ, { force: true }).catch(() => {});
     }
+  }
+
+  /** Emit the terminal event and persist the result for the UI to poll. */
+  private async finish(result: IntegrationResult): Promise<IntegrationResult> {
+    this.opts.events?.emitEvent({
+      type: "integrate:done",
+      promoted: result.promoted,
+      mainHead: result.mainHead,
+    });
+    if (this.opts.stateFile !== null) {
+      const file = this.opts.stateFile ?? path.join(this.opts.repoRoot, ".harness", "integration.json");
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, JSON.stringify({ ...result, updatedAt: new Date().toISOString() }, null, 2), "utf8");
+    }
+    return result;
   }
 
   private async handleTextualConflict(
