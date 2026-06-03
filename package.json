@@ -1,0 +1,19 @@
+{
+  "name": "harness",
+  "version": "0.1.0",
+  "description": "Parallel multi-agent branch orchestration — orchestrator fans out N worker agents on isolated worktrees and integrates their branches into main with test-verified conflict resolution.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
