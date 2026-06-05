@@ -62,9 +62,12 @@ npm run harness -- run tasks.json --repo <target-repo> --concurrency 3
 ```
 
 Each task gets a worktree + branch; a Claude Code agent implements it and
-commits. Add `--dangerous` for fully autonomous agents
+commits **incrementally** (the worker brief instructs agents to commit after each
+logical step, not only at the end). Add `--dangerous` for fully autonomous agents
 (`--dangerously-skip-permissions`); otherwise agents run with `acceptEdits`.
 Completed workers are checkpointed under `<repo>/.harness/checkpoints`.
+
+Add `--interactive` to keep each agent long-lived and steerable (see step 3b).
 
 ### 3. Integrate into main
 
@@ -79,6 +82,21 @@ but break the build), negotiates any conflict via agent resolvers with a
 bounded round count, falls back to a tie-break, and **only fast-forwards `main`
 when the whole train is green**. If it can't resolve, it escalates and leaves
 `main` untouched — surface that to the user.
+
+### 3b. Steer a single agent (interactive mode)
+
+When you ran with `--interactive`, you can talk to one agent while the others
+keep working — useful to correct course or add a constraint without restarting:
+
+```
+npm run harness -- inject --repo <target> --branch feat/users-api --text "reuse the existing validator in lib/validate"
+npm run harness -- pause  --repo <target> --branch feat/users-api      # buffer further messages
+npm run harness -- resume --repo <target> --branch feat/users-api      # flush them
+npm run harness -- end    --repo <target> --branch feat/users-api      # tell the agent to wrap up
+```
+
+The dashboard exposes the same controls (a steer box + Pause/Resume per running
+agent). Messages route only to the addressed branch's agent.
 
 ### 4. Monitor (optional)
 

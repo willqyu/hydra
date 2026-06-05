@@ -48,6 +48,18 @@
       .kpi div { display: flex; flex-direction: column; }
       .kpi b { font-size: 22px; }
       .kpi span { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+      .ctrl { display: flex; gap: 6px; align-items: center; }
+      .ctrl input {
+        flex: 1; min-width: 120px; background: var(--bg); color: var(--fg);
+        border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+        font: inherit; font-size: 12px;
+      }
+      .ctrl button {
+        background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .ctrl button:hover { border-color: var(--accent); color: var(--accent); }
+      .ctrl button.paused { color: var(--run); border-color: var(--run); }
     </style>
   </head>
   <body>
@@ -84,19 +96,60 @@
       const short = (sha) => (sha ? esc(String(sha).slice(0, 8)) : "—");
       const badge = (s) => `<span class="badge s-${esc(s)}">${esc(s)}</span>`;
 
-      function renderWorkers(workers) {
+      function controlsCell(w, inbox) {
+        if (w.state !== "running") return '<span class="muted">—</span>';
+        const paused = inbox && inbox[w.branch] && inbox[w.branch].paused;
+        const b = esc(w.branch);
+        return `<div class="ctrl" data-branch="${b}">
+            <input type="text" placeholder="message this agent…" data-role="inject-text" />
+            <button data-act="inject">Send</button>
+            <button data-act="${paused ? "resume" : "pause"}" class="${paused ? "paused" : ""}">${paused ? "Resume" : "Pause"}</button>
+          </div>`;
+      }
+
+      function renderWorkers(workers, inbox) {
         if (!workers.length) return '<div class="empty">No workers yet.</div>';
         const rows = workers.map((w) => `
           <tr>
-            <td>${esc(w.branch)}</td>
+            <td>${esc(w.branch)}${inbox && inbox[w.branch] && inbox[w.branch].paused ? " " + badge("paused") : ""}</td>
             <td class="muted">${esc(w.taskId)}</td>
             <td>${badge(w.state)}</td>
             <td class="sha">${short(w.head)}</td>
             <td class="muted">${w.checkpoint ? "✓" : "—"}</td>
-            <td class="muted">${w.error ? esc(w.error).slice(0, 60) : ""}</td>
+            <td>${controlsCell(w, inbox)}</td>
           </tr>`).join("");
-        return `<table><thead><tr><th>Branch</th><th>Task</th><th>State</th><th>Head</th><th>Ckpt</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table>`;
+        return `<table><thead><tr><th>Branch</th><th>Task</th><th>State</th><th>Head</th><th>Ckpt</th><th>Steer</th></tr></thead><tbody>${rows}</tbody></table>`;
       }
+
+      async function postJSON(path, body) {
+        try {
+          await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        } catch (e) { /* shown as disconnected on next tick */ }
+      }
+
+      // Event delegation for the per-agent steer controls.
+      document.addEventListener("click", (ev) => {
+        const btn = ev.target.closest("button[data-act]");
+        if (!btn) return;
+        const wrap = btn.closest(".ctrl");
+        const branch = wrap.dataset.branch;
+        const act = btn.dataset.act;
+        if (act === "inject") {
+          const input = wrap.querySelector('[data-role="inject-text"]');
+          const text = input.value.trim();
+          if (text) { postJSON("/api/inject", { branch, text }); input.value = ""; }
+        } else {
+          postJSON("/api/control", { branch, action: act });
+        }
+      });
+      document.addEventListener("keydown", (ev) => {
+        if (ev.key !== "Enter") return;
+        const input = ev.target.closest('[data-role="inject-text"]');
+        if (!input) return;
+        const wrap = input.closest(".ctrl");
+        const text = input.value.trim();
+        if (text) { postJSON("/api/inject", { branch: wrap.dataset.branch, text }); input.value = ""; }
+      });
 
       function renderIntegration(it) {
         if (!it) return '<div class="empty">No integration run yet.</div>';
@@ -136,7 +189,17 @@
           $("repo").textContent = s.repoRoot;
           $("updated").textContent = "updated " + new Date(s.generatedAt).toLocaleTimeString();
           $("integration").innerHTML = renderIntegration(s.integration);
-          $("workers").innerHTML = renderWorkers(s.workers || []);
+
+          // Preserve a half-typed message across the refresh.
+          const focused = document.activeElement;
+          const typing = focused && focused.matches('[data-role="inject-text"]')
+            ? { branch: focused.closest(".ctrl").dataset.branch, value: focused.value, start: focused.selectionStart }
+            : null;
+          $("workers").innerHTML = renderWorkers(s.workers || [], s.inbox || {});
+          if (typing) {
+            const sel = document.querySelector(`.ctrl[data-branch="${CSS.escape(typing.branch)}"] [data-role="inject-text"]`);
+            if (sel) { sel.value = typing.value; sel.focus(); try { sel.setSelectionRange(typing.start, typing.start); } catch (e) {} }
+          }
           $("worktrees").innerHTML = renderWorktrees(s.worktrees || []);
           $("checkpoints").innerHTML = renderCheckpoints(s.checkpoints || []);
         } catch (e) {

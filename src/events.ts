@@ -9,7 +9,10 @@ export type HarnessEvent =
   | { type: "integrate:step"; branch: string; status: string; detail?: string }
   | { type: "integrate:done"; promoted: boolean; mainHead?: string }
   | { type: "negotiate:round"; branch: string; round: number; resolver: string; tieBreak: boolean }
-  | { type: "escalate"; branch: string; kind: "textual" | "semantic"; detail: string };
+  | { type: "escalate"; branch: string; kind: "textual" | "semantic"; detail: string }
+  | { type: "agent:inject"; branch: string; text: string }
+  | { type: "agent:pause"; branch: string }
+  | { type: "agent:resume"; branch: string };
 
 /** Thin typed wrapper over EventEmitter — `onEvent` for everything, plus per-type. */
 export class HarnessEvents extends EventEmitter {

@@ -4,6 +4,8 @@ import path from "node:path";
 import { Git } from "./git.js";
 import { Orchestrator } from "./orchestrator.js";
 import { ClaudeAgentRunner } from "./worker.js";
+import { StreamingClaudeAgentRunner } from "./streaming-worker.js";
+import { InboxManager } from "./inbox.js";
 import { Integrator } from "./integrator.js";
 import { Negotiator } from "./negotiator.js";
 import { ClaudeConflictResolver } from "./claude-resolver.js";
@@ -54,17 +56,25 @@ async function cmdRun(f: Flags): Promise<void> {
   const parsed = JSON.parse(await readFile(path.resolve(file), "utf8"));
   const tasks: TaskSpec[] = Array.isArray(parsed) ? parsed : parsed.tasks;
 
-  const runner = new ClaudeAgentRunner({
-    bin: str(f, "agent-bin") || undefined,
-    args: agentArgs(f),
-    logger: (m) => console.log("  " + m),
-  });
+  const events = logEvents();
+  const runner = f.interactive
+    ? new StreamingClaudeAgentRunner({
+        bin: str(f, "agent-bin") || undefined,
+        events,
+        logger: (m) => console.log("  " + m),
+      })
+    : new ClaudeAgentRunner({
+        bin: str(f, "agent-bin") || undefined,
+        args: agentArgs(f),
+        logger: (m) => console.log("  " + m),
+      });
+  if (f.interactive) console.log("interactive mode — steer agents via `harness inject` or the dashboard");
   const result = await new Orchestrator({
     repoRoot: repo,
     runner,
     concurrency: num(f, "concurrency", parsed.concurrency ?? 4),
     baseRef: str(f, "base") || parsed.baseRef || undefined,
-    events: logEvents(),
+    events,
     logger: (m) => console.log(m),
   }).run(tasks);
 
@@ -127,6 +137,23 @@ async function cmdStatus(f: Flags): Promise<void> {
   console.log(`\ncheckpoints: ${status.checkpoints.length} · live worktrees: ${status.worktrees.length}`);
 }
 
+async function cmdInject(f: Flags): Promise<void> {
+  const repo = path.resolve(str(f, "repo", process.cwd()));
+  const branch = str(f, "branch");
+  const text = str(f, "text") || (f._ as string[]).slice(1).join(" ");
+  if (!branch || !text) throw new Error('usage: harness inject --branch <branch> --text "message"');
+  await new InboxManager(repo).post(branch, { kind: "inject", text, from: "cli" });
+  console.log(`injected to ${branch}`);
+}
+
+async function cmdControl(action: "pause" | "resume" | "end", f: Flags): Promise<void> {
+  const repo = path.resolve(str(f, "repo", process.cwd()));
+  const branch = str(f, "branch") || (f._ as string[])[1] || "";
+  if (!branch) throw new Error(`usage: harness ${action} --branch <branch>`);
+  await new InboxManager(repo).post(branch, { kind: action, from: "cli" });
+  console.log(`${action} → ${branch}`);
+}
+
 async function cmdServe(f: Flags): Promise<void> {
   const repo = path.resolve(str(f, "repo", process.cwd()));
   startServer({ repoRoot: repo, port: num(f, "port", 4317) });
@@ -150,14 +177,20 @@ async function main(): Promise<void> {
     case "integrate": return cmdIntegrate(f);
     case "status": return cmdStatus(f);
     case "serve": return cmdServe(f);
+    case "inject": return cmdInject(f);
+    case "pause": return cmdControl("pause", f);
+    case "resume": return cmdControl("resume", f);
+    case "end": return cmdControl("end", f);
     default:
       console.log(`harness — parallel multi-agent branch orchestration
 
 usage:
-  harness run <tasks.json> [--repo .] [--concurrency 4] [--base REF] [--agent-bin claude] [--dangerous]
+  harness run <tasks.json> [--repo .] [--concurrency 4] [--base REF] [--agent-bin claude] [--interactive] [--dangerous]
   harness integrate [--branches a,b] [--test "npm test"] [--main main] [--max-rounds 3] [--repo .] [--dangerous]
   harness status [--repo .] [--json]
   harness serve [--repo .] [--port 4317]
+  harness inject --branch <b> --text "message"     # steer one running agent (interactive mode)
+  harness pause|resume|end --branch <b>             # control one running agent
 
 tasks.json: { "tasks": [ { "id", "branch", "description", "blockedBy"? } ], "concurrency"?: 4 }`);
       if (cmd) process.exitCode = 1;

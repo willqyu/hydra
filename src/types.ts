@@ -22,6 +22,8 @@ export interface WorkerContext {
   description: string;
   /** Absolute path to the isolated git worktree for this task. */
   worktree: string;
+  /** Repo root — used to locate the per-agent inbox for live interaction. */
+  repoRoot: string;
   /** Git helper already scoped to the worktree directory. */
   git: Git;
 }

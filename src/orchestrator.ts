@@ -5,6 +5,7 @@ import { Registry } from "./registry.js";
 import { TaskDag } from "./task-dag.js";
 import { CheckpointManager } from "./checkpoint.js";
 import { HarnessEvents } from "./events.js";
+import { InboxManager } from "./inbox.js";
 import type { TaskId, TaskSpec, WorkerContext, WorkerRunner } from "./types.js";
 
 export interface OrchestratorOptions {
@@ -71,6 +72,7 @@ export class Orchestrator {
     const checkpoints = new CheckpointManager(
       this.opts.checkpointDir ?? path.join(repoRoot, ".harness", "checkpoints"),
     );
+    const inboxes = new InboxManager(repoRoot);
 
     const outcomes = new Map<TaskId, TaskOutcome>();
     const active = new Map<TaskId, Promise<TaskId>>();
@@ -80,6 +82,7 @@ export class Orchestrator {
       let worktree: string | undefined;
       this.opts.events?.emitEvent({ type: "task:start", taskId: id, branch: node.branch });
       try {
+        await inboxes.clear(node.branch); // drop stale messages from a prior run
         worktree = await wtm.add(node.branch, baseRef);
         await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "running" });
         const ctx: WorkerContext = {
@@ -87,6 +90,7 @@ export class Orchestrator {
           branch: node.branch,
           description: node.description,
           worktree,
+          repoRoot,
           git: new Git(worktree),
         };
         const result = await this.opts.runner.run(ctx);

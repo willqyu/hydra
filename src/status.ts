@@ -3,6 +3,7 @@ import path from "node:path";
 import { Registry, type RegistryEntry } from "./registry.js";
 import { WorktreeManager, type WorktreeInfo } from "./worktree.js";
 import { CheckpointManager, type Checkpoint } from "./checkpoint.js";
+import { InboxManager } from "./inbox.js";
 import type { IntegrationResult } from "./integrator.js";
 
 export interface IntegrationState extends IntegrationResult {
@@ -20,6 +21,8 @@ export interface FleetStatus {
   checkpoints: Checkpoint[];
   /** Latest integration result, if any. */
   integration: IntegrationState | null;
+  /** Per-branch interaction state (paused + queued message count). */
+  inbox: Record<string, { paused: boolean; count: number }>;
 }
 
 export interface FleetStatusPaths {
@@ -48,12 +51,21 @@ export async function readFleetStatus(repoRoot: string, paths: FleetStatusPaths 
     integration = null;
   }
 
+  const workers = registry.all();
+  const inboxes = new InboxManager(repoRoot);
+  const inbox: Record<string, { paused: boolean; count: number }> = {};
+  for (const w of workers) {
+    const s = await inboxes.state(w.branch);
+    if (s.count > 0) inbox[w.branch] = s;
+  }
+
   return {
     repoRoot,
     generatedAt: new Date().toISOString(),
-    workers: registry.all(),
+    workers,
     worktrees: await wtm.list().catch(() => []),
     checkpoints: await cpm.list(),
     integration,
+    inbox,
   };
 }

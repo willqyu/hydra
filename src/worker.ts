@@ -57,9 +57,12 @@ function defaultPrompt(ctx: WorkerContext): string {
     "Task:",
     ctx.description,
     "",
-    "Implement the task end to end in this worktree, then commit your work with a",
-    "clear message. Keep the change scoped to this task. When done, briefly state",
-    "the key decisions you made (these are saved as your checkpoint context).",
+    "Implement the task end to end in this worktree. Commit your work INCREMENTALLY:",
+    "after each logical step or working sub-change, run `git add -A && git commit`",
+    "with a clear message — do NOT wait until the very end to make a single commit.",
+    "Frequent commits keep your progress safe and make integration easier.",
+    "Keep the change scoped to this task. When done, briefly state the key decisions",
+    "you made (these are saved as your checkpoint context).",
   ].join("\n");
 }
 
