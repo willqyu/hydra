@@ -83,6 +83,18 @@ worktrees, checkpoints, and integration status. In **interactive mode** each
 running worker gets a steer box — type a message to one agent (or Pause/Resume
 it) while its siblings keep running.
 
+### Fleet hydra 🐉
+
+The dashboard also grows a **hydra** — one pixel-art head per worker, each vibing
+with its agent's state: `busy` while working, `sleepy` when idle, `panic` on
+failure, and a `disco` + fireworks party when a task lands. Drag a head and its
+neck stretches like an elastic band (stressed face and a startled `!` included);
+let go and it springs back. Click a head to make it jump, or bop the body to hop
+the whole fleet. A spawning worker's head grows out of the body; once a branch
+merges into `main` it folds in with a puff of smoke. Served at `/hydra.html` —
+drive it via `window.hydra` or the postMessage bridge; `?showcase` parades every
+mode at once.
+
 ## Per-agent interaction
 
 By default workers are one-shot (`ClaudeAgentRunner`). With `run --interactive`
