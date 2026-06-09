@@ -171,12 +171,13 @@ export async function readAgentLog(repoRoot: string, branch: string, offset = 0)
   return readFromFile(file, offset);
 }
 
-/** One Claude Code session running (or run) inside a harness worktree. */
+/** One Claude Code session running (or run) for this repo's harness. */
 export interface AgentSession {
   /** Opaque, URL-safe key: `<projectDir>::<sessionId>`. */
   id: string;
-  /** worker = branch worktree; negotiator = the shared integration worktree. */
-  role: "worker" | "negotiator";
+  /** worker = branch worktree; negotiator = integration worktree; supervisor =
+   *  the planning/naming agent that runs in the repo root before the fleet. */
+  role: "worker" | "negotiator" | "supervisor";
   /** Git branch the session ran on (from the transcript), e.g. feat/x or integration/staging. */
   branch?: string;
   /** Transcript filename (uuid), without the .jsonl extension. */
@@ -236,14 +237,70 @@ async function readSessionMeta(file: string): Promise<{ branch?: string; title: 
   return { branch, title: title.slice(0, 160), startedAt };
 }
 
+/** The supervisor and branch-naming agents both run in the repo root; identify
+ *  their sessions (vs the user's own interactive ones) by their opening prompt. */
+function isPlannerTitle(title: string): boolean {
+  return (
+    /^You are the SUPERVISOR for a parallel multi-agent/.test(title) ||
+    /^Summarize the following task as a git branch name/.test(title)
+  );
+}
+
+/** Collect sessions from one project dir. When `plannerOnly`, keep only the most
+ *  recent files and only those whose opening prompt is a harness planner. */
+async function collectSessions(
+  dir: string,
+  role: AgentSession["role"],
+  plannerOnly: boolean,
+): Promise<AgentSession[]> {
+  const projectDir = path.join(PROJECTS_ROOT, dir);
+  let files: string[];
+  try {
+    files = (await readdir(projectDir)).filter((f) => f.endsWith(".jsonl"));
+  } catch {
+    return [];
+  }
+  let entries = await Promise.all(
+    files.map(async (f) => {
+      try {
+        return { f, m: (await stat(path.join(projectDir, f))).mtimeMs };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  let ranked = entries.filter((e): e is { f: string; m: number } => e !== null);
+  if (plannerOnly) {
+    // Bound cost in a busy repo-root dir: only inspect the most recent sessions.
+    ranked = ranked.sort((a, b) => b.m - a.m).slice(0, 40);
+  }
+  const out: AgentSession[] = [];
+  for (const { f, m } of ranked) {
+    const meta = await readSessionMeta(path.join(projectDir, f));
+    if (plannerOnly && !isPlannerTitle(meta.title)) continue;
+    const sessionId = f.slice(0, -".jsonl".length);
+    out.push({
+      id: `${dir}::${sessionId}`,
+      role,
+      branch: meta.branch,
+      sessionId,
+      title: meta.title,
+      startedAt: meta.startedAt,
+      lastActivityAt: new Date(m).toISOString(),
+    });
+  }
+  return out;
+}
+
 /**
- * Enumerate every Claude session that has run inside this repo's worktrees —
- * workers (branch worktrees) AND negotiators (the shared integration worktree).
- * Scans ~/.claude/projects by the repo's worktree prefix so sessions remain
- * visible even after a worktree is cleaned up.
+ * Enumerate every Claude session for this repo's harness — workers (branch
+ * worktrees), negotiators (the integration worktree), AND the supervisor /
+ * branch-naming agents that plan in the repo root before the fleet. Scans
+ * ~/.claude/projects so sessions stay visible even after a worktree is cleaned up.
  */
 export async function listAgentSessions(repoRoot: string): Promise<AgentSession[]> {
   const prefix = worktreesPrefix(repoRoot);
+  const repoDir = encodeProjectDir(repoRoot); // repo-root project dir (planner sessions)
   let dirs: string[];
   try {
     dirs = await readdir(PROJECTS_ROOT);
@@ -252,35 +309,12 @@ export async function listAgentSessions(repoRoot: string): Promise<AgentSession[
   }
   const out: AgentSession[] = [];
   for (const dir of dirs) {
-    if (dir !== prefix && !dir.startsWith(prefix + "-")) continue;
-    const remainder = dir.slice(prefix.length); // encoded worktree name
-    const role: AgentSession["role"] = /integration|staging/i.test(remainder) ? "negotiator" : "worker";
-    const projectDir = path.join(PROJECTS_ROOT, dir);
-    let files: string[];
-    try {
-      files = await readdir(projectDir);
-    } catch {
-      continue;
-    }
-    for (const f of files) {
-      if (!f.endsWith(".jsonl")) continue;
-      let st;
-      try {
-        st = await stat(path.join(projectDir, f));
-      } catch {
-        continue;
-      }
-      const meta = await readSessionMeta(path.join(projectDir, f));
-      const sessionId = f.slice(0, -".jsonl".length);
-      out.push({
-        id: `${dir}::${sessionId}`,
-        role,
-        branch: meta.branch,
-        sessionId,
-        title: meta.title,
-        startedAt: meta.startedAt,
-        lastActivityAt: new Date(st.mtimeMs).toISOString(),
-      });
+    if (dir === repoDir) {
+      out.push(...(await collectSessions(dir, "supervisor", true)));
+    } else if (dir === prefix || dir.startsWith(prefix + "-")) {
+      const remainder = dir.slice(prefix.length); // encoded worktree name
+      const role: AgentSession["role"] = /integration|staging/i.test(remainder) ? "negotiator" : "worker";
+      out.push(...(await collectSessions(dir, role, false)));
     }
   }
   // Most-recently-active first.
@@ -299,7 +333,8 @@ export async function readSessionLog(repoRoot: string, id: string, offset = 0): 
   const dir = id.slice(0, sep);
   const sessionId = id.slice(sep + 2);
   const prefix = worktreesPrefix(repoRoot);
-  const inRepo = dir === prefix || dir.startsWith(prefix + "-");
+  // Allow this repo's worktree dirs and its repo-root dir (supervisor sessions).
+  const inRepo = dir === prefix || dir.startsWith(prefix + "-") || dir === encodeProjectDir(repoRoot);
   if (!inRepo || dir.includes("/") || dir.includes("..") || !/^[A-Za-z0-9._-]+$/.test(sessionId)) {
     return { offset, events: [], found: false };
   }

@@ -116,6 +116,7 @@
       .s-idle { background: rgba(210,153,34,.18); color: var(--run); margin-left: 6px; }
       .s-worker { background: rgba(88,166,255,.15); color: var(--accent); }
       .s-negotiator { background: rgba(188,140,255,.18); color: #bc8cff; }
+      .s-supervisor { background: rgba(63,185,80,.15); color: var(--ok); }
       .s-live { background: rgba(63,185,80,.15); color: var(--ok); margin-left: 6px; }
       /* Branch column: roomy, single-line — long branch names never wrap. */
       td.col-branch, th.col-branch { white-space: nowrap; min-width: 260px; }
@@ -420,7 +421,10 @@
         const rows = agents.map((a) => {
           const id = esc(a.id);
           const open = agentExpanded.has(a.id);
-          const name = esc(a.branch || "(unknown branch)");
+          // Supervisor sessions run in the repo root, so their branch isn't meaningful.
+          const name = a.role === "supervisor"
+            ? "fleet planning"
+            : esc(a.branch || "(unknown branch)");
           const summary = `
             <tr>
               <td>
