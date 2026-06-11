@@ -103,7 +103,17 @@ export class Negotiator implements NegotiatorInterface {
       }
 
       await worktreeGit.run(["add", "-A"]);
-      await worktreeGit.run(["commit", "--no-edit"]);
+      const committed = await worktreeGit.tryRun(["commit", "--no-edit"]);
+      if (committed.code !== 0) {
+        // Resolution produced no net change (e.g. the branch was already present).
+        // That's not a failure — clear the dangling merge and accept the no-op
+        // rather than throwing and aborting the whole train.
+        if (/nothing to commit|no changes added/i.test(committed.stdout + committed.stderr)) {
+          await worktreeGit.tryRun(["merge", "--abort"]).catch(() => {});
+        } else {
+          throw new Error(`commit failed: ${(committed.stderr || committed.stdout).trim()}`);
+        }
+      }
       return this.accept(branch, round, resolver.name, tieBreak);
     }
 

@@ -159,6 +159,17 @@ export class Integrator {
     try {
       for (const branch of branches) {
         const lastGood = await wtGit.head();
+        // Already contained in staging (landed in a prior train, or pulled in by
+        // an earlier branch this round)? Skip it — a no-op re-merge can otherwise
+        // fail with "nothing to commit" and abort the whole train.
+        if (
+          (await wtGit.tryRun(["rev-parse", "--verify", "--quiet", branch])).code === 0 &&
+          (await wtGit.tryRun(["merge-base", "--is-ancestor", branch, "HEAD"])).code === 0
+        ) {
+          this.log(`• ${branch} already in ${this.integ} — skipping`);
+          recordStep({ branch, status: "merged", detail: "already present" });
+          continue;
+        }
         this.log(`⇢ merging ${branch} into ${this.integ}`);
         const merge = await this.mergeTool.mergeInto(wtGit, branch, `integrate ${branch}`);
 

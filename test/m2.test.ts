@@ -63,6 +63,40 @@ test("non-conflicting branches land on main through the merge train", async () =
   }
 });
 
+test("re-integrating an already-landed branch is skipped, not aborted", async () => {
+  // Regression: a second integrate pass that still lists an already-merged branch
+  // must skip it (no-op) and still land the genuinely-new branch — previously the
+  // stale branch produced an empty merge that failed `git commit` and aborted the
+  // whole train, stranding the new work.
+  const repo = await initRepo();
+  try {
+    const runner = new ScriptWorkerRunner({
+      a: commitFile("a.txt", "from A\n", "task a"),
+      b: commitFile("b.txt", "from B\n", "task b"),
+    });
+    await new Orchestrator({ repoRoot: repo, runner, concurrency: 2 }).run([
+      { id: "a", branch: "feat/a", description: "A" },
+      { id: "b", branch: "feat/b", description: "B" },
+    ]);
+
+    // First pass: land feat/a only.
+    const first = await new Integrator({ repoRoot: repo }).integrate(["feat/a"]);
+    assert.equal(first.promoted, true);
+
+    // Second pass still lists feat/a (already in main) alongside the new feat/b.
+    const second = await new Integrator({ repoRoot: repo }).integrate(["feat/a", "feat/b"]);
+    assert.equal(second.promoted, true);
+    assert.equal(second.steps.find((s) => s.branch === "feat/a")?.status, "merged");
+    assert.equal(second.steps.find((s) => s.branch === "feat/b")?.status, "merged");
+
+    const git = new Git(repo);
+    assert.equal(await git.run(["show", "main:a.txt"]), "from A");
+    assert.equal(await git.run(["show", "main:b.txt"]), "from B"); // the new work landed
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
 test("conflicting branches halt the train and leave main untouched", async () => {
   const repo = await initRepo();
   try {

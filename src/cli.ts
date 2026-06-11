@@ -44,6 +44,13 @@ function parseArgs(argv: string[]): Flags {
 const str = (f: Flags, k: string, d = ""): string => (typeof f[k] === "string" ? (f[k] as string) : d);
 const num = (f: Flags, k: string, d: number): number => (typeof f[k] === "string" ? Number(f[k]) : d);
 
+/** Resolve the integration trunk: main, else master, else the current branch. */
+async function resolveMain(git: Git): Promise<string> {
+  if ((await git.tryRun(["rev-parse", "--verify", "--quiet", "main"])).code === 0) return "main";
+  if ((await git.tryRun(["rev-parse", "--verify", "--quiet", "master"])).code === 0) return "master";
+  return (await git.tryRun(["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim() || "HEAD";
+}
+
 /** Agent CLI args, with --dangerous enabling fully autonomous runs. */
 function agentArgs(f: Flags): string[] {
   return f.dangerous
@@ -221,6 +228,25 @@ async function cmdIntegrate(f: Flags): Promise<void> {
   }
   if (branches.length === 0) throw new Error("no branches to integrate (pass --branches a,b or run first)");
 
+  // Drop branches that no longer exist or have already landed in main. Re-merging
+  // an already-integrated branch is a no-op that can spuriously fail the train and
+  // strand genuinely-new branches behind it.
+  const git = new Git(repo);
+  const mainBranch = str(f, "main") || (await resolveMain(git));
+  const live: string[] = [];
+  const dropped: string[] = [];
+  for (const b of branches) {
+    if ((await git.tryRun(["rev-parse", "--verify", "--quiet", b])).code !== 0) { dropped.push(`${b} (missing)`); continue; }
+    if ((await git.tryRun(["merge-base", "--is-ancestor", b, mainBranch])).code === 0) { dropped.push(`${b} (already in ${mainBranch})`); continue; }
+    live.push(b);
+  }
+  if (dropped.length) console.log(`skipping ${dropped.length}: ${dropped.join(", ")}`);
+  branches = live;
+  if (branches.length === 0) {
+    console.log(`nothing to integrate — all completed branches already landed in ${mainBranch}`);
+    return;
+  }
+
   const testCommand = str(f, "test") || undefined;
   const resolver = new ClaudeConflictResolver({ bin: str(f, "agent-bin") || undefined, args: agentArgs(f) });
   const negotiator = new Negotiator({
@@ -233,7 +259,7 @@ async function cmdIntegrate(f: Flags): Promise<void> {
   console.log(`integrating: ${branches.join(", ")}`);
   const result = await new Integrator({
     repoRoot: repo,
-    mainBranch: str(f, "main") || undefined,
+    mainBranch,
     testCommand,
     negotiator,
     continueOnUnresolved: prioritized,
