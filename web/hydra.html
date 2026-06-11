@@ -69,6 +69,7 @@
     <code>panic</code> (everyone screams) · <code>snek</code> (necks go wild) ·
     <code>sleepy</code> (heads doze with zzz, moon, twinkling + shooting stars).<br>
     JS API: <code>hydra.setVibe(name)</code> · <code>hydra.setHeads(n)</code> ·
+    <code>hydra.setTangle([i,…])</code> (knot heads during a negotiation) ·
     <code>hydra.getState()</code> · <code>hydra.getVibe()</code> ·
     <code>hydra.on('change', cb)</code> · <code>hydra.getEndpoints()</code>.
     See README.md for the full API + postMessage bridge.
@@ -197,6 +198,8 @@
   }
 
   let heads = [];
+  // indices of heads currently knotted together during a negotiation
+  let tangleSet = new Set();
   let speedScale = 1, amp = 1;
   let nightLevel = 0, discoLevel = 0;
   let celebrateT = 0;   // seconds of forced full-fireworks celebration remaining
@@ -224,7 +227,7 @@
     (listeners[type]||[]).forEach(cb=>{ try{ cb(detail); }catch(e){} });
     if(type === 'change'){ try{ if(window.parent && window.parent !== window) window.parent.postMessage({ source:'hydra', type:'change', detail }, '*'); }catch(e){} }
   }
-  function snapshot(){ return { count: heads.length, vibe: VIBES[vibeIdx].name, vibeIndex: vibeIdx, endpoints: endpoints() }; }
+  function snapshot(){ return { count: heads.length, vibe: VIBES[vibeIdx].name, vibeIndex: vibeIdx, tangle: [...tangleSet], endpoints: endpoints() }; }
 
   function makeHead(i){
     return { phase: Math.random()*Math.PI*2, blink: Math.random()*4 + 2, blinkT: 0, blinking: 0,
@@ -233,11 +236,14 @@
       // per-head vibe — each agent's head animates independently
       vibe: VIBES[vibeIdx].name,
       // spring physics: px/py = live position (grid), vx/vy = velocity, dragging = grabbed
-      px:NaN, py:NaN, vx:0, vy:0, dragging:false, bangT:0, grow:0 };
+      px:NaN, py:NaN, vx:0, vy:0, dragging:false, bangT:0, grow:0,
+      // tangling: true while this head is knotted with others in a negotiation
+      tangling:false };
   }
 
   function setHeads(n, silent){
-    n = Math.max(1, Math.min(18, n|0));
+    // 0 is valid — an idle fleet (no live workers) shows just the body, no heads.
+    n = Math.max(0, Math.min(18, n|0));
     const prev = heads.length;
     if(n > heads.length){ while(heads.length < n) heads.push(makeHead(heads.length)); }
     else if(n < heads.length){
@@ -270,7 +276,7 @@
   function drawHead(cx, cy, h, big, i){
     const [base, bd] = headColors(h, i);
     const v = h.vibe; const panic = (v === 'panic'), sleepy = (v === 'sleepy');
-    const stressed = h.dragging;
+    const stressed = h.dragging || h.tangling;   // tangled heads strain too
     // spawn grow: head swells from a nub to full size as it rises out of the body
     const g = Math.max(0, Math.min(1, h.grow));
     const w = Math.max(3, Math.round((big ? 7 : 5) * (0.45 + 0.55*g)));
@@ -321,12 +327,15 @@
     const col = headColors(h, i)[1];
     const dx = hx - ax, dy = hy - ay; const dist = Math.hypot(dx, dy); if(dist < 0.001) return;
     const steps = Math.max(1, Math.round(dist * 1.2));
-    const wild = (h.vibe === 'snek') ? 3.0 : 1.0;
-    const ampN = vibeByName(h.vibe).amp * (h.dragging ? 0.18 : 1);
+    const wild = (h.vibe === 'snek') ? 3.0 : (h.tangling ? 2.4 : 1.0);
+    const ampBase = vibeByName(h.vibe).amp * (h.dragging ? 0.18 : 1);
+    // tangled necks swing hard and out of phase (per head index) so they weave
+    const ampN = h.tangling ? Math.max(ampBase, 1.8) : ampBase;
+    const phase = h.phase + (h.tangling ? i*1.9 : 0);
     const nx = -dy/dist, ny = dx/dist;            // unit perpendicular
     const vertical = Math.abs(dx) <= Math.abs(dy); // keep 2px thickness without gaps
     for(let s=0; s<=steps; s++){ const t = s/steps;
-      const wob = Math.sin(h.phase + t*3.0*wild)*(t*2.4)*ampN;
+      const wob = Math.sin(phase + t*3.0*wild)*(t*2.4)*ampN;
       const x = Math.round(ax + dx*t + nx*wob);
       const y = Math.round(ay + dy*t + ny*wob);
       px(x, y, col);
@@ -343,7 +352,24 @@
       const spread = 26 + (n>9 ? (n-9)*4 : 0); const hx = cxBody + (t-0.5)*spread; const arc = Math.sin(t*Math.PI);
       let hy = body.y0 - 8 - arc*12; if(droop) hy = body.y0 - 5 - arc*5 + Math.sin(tGlobal*0.8 + i)*0.5;
       h.hx = hx; h.hy = hy; h.big = (n<=3) ? true : (arc > 0.45);
+      h.tangling = false;
     });
+    // Tangle: heads in a negotiation converge on a shared knot above the body and
+    // orbit it, so their necks (rooted at spread-out anchors) cross and braid.
+    const knotted = []; tangleSet.forEach(i=>{ if(heads[i]) knotted.push(i); });
+    if(knotted.length >= 2){
+      let kx = 0; knotted.forEach(i=> kx += heads[i].anchorX); kx /= knotted.length;
+      const knotY = body.y0 - 16;
+      const R = 2.5 + Math.min(4, knotted.length * 0.6);
+      knotted.forEach((idx,k)=>{
+        const h = heads[idx];
+        const ang = tGlobal*1.8 + k*(Math.PI*2/knotted.length);
+        h.hx = kx + Math.cos(ang)*R;
+        h.hy = knotY + Math.sin(ang)*R*0.55;   // squashed orbit reads as a knot, not a ring
+        h.big = false;                          // shrink into the huddle
+        h.tangling = true;
+      });
+    }
   }
 
   function endpoints(){ return heads.map((h,i)=>({index:i, color:headColors(h,i)[0], x:h.endpoint.x, y:h.endpoint.y})); }
@@ -423,17 +449,30 @@
   // array length, then assigns each head its own vibe — so a single sleeping
   // agent droops just its own head while its siblings keep working.
   function setHeadVibes(arr, silent){
-    if(!Array.isArray(arr) || arr.length === 0) return snapshot();
-    const n = Math.max(1, Math.min(18, arr.length));
+    if(!Array.isArray(arr)) return snapshot();
+    // An empty array = an empty fleet: drop to zero heads (just the body).
+    const n = Math.max(0, Math.min(18, arr.length));
     if(n !== heads.length) setHeads(n, true);
     const counts = {};
     heads.forEach((h,i)=>{ const name = VIBE_BY_NAME[arr[i]] ? arr[i] : 'chill'; h.vibe = name; counts[name] = (counts[name]||0)+1; });
     // pick the most common vibe as the representative for snapshot/getVibe + control highlight
-    let rep = heads[0].vibe, best = 0;
+    let rep = heads[0] ? heads[0].vibe : VIBES[vibeIdx].name, best = 0;
     for(const k in counts){ if(counts[k] > best){ best = counts[k]; rep = k; } }
     const ri = VIBES.findIndex(v=>v.name===rep); if(ri >= 0){ vibeIdx = ri; updateVibeBar(); }
     if(!silent) emit('change', snapshot());
     return snapshot();
+  }
+
+  // Tangle a set of heads together (one knot per negotiation). Pass the head
+  // indices to knot; pass [] (or one/none) to untangle. Indices out of range are
+  // ignored. A tangle of fewer than 2 heads is a no-op visually (nothing to knot).
+  function setTangle(arr, silent){
+    const next = new Set((Array.isArray(arr) ? arr : []).map(n=> n|0).filter(i=> i>=0 && i<18));
+    let changed = next.size !== tangleSet.size;
+    if(!changed) for(const i of next){ if(!tangleSet.has(i)){ changed = true; break; } }
+    tangleSet = next;
+    if(!silent && changed) emit('change', snapshot());
+    return [...tangleSet];
   }
 
   // ---- public API ----
@@ -444,13 +483,16 @@
     setHeads: (n)=> setHeads(n),
     setVibe: (name)=> setVibe(name),
     setHeadVibes: (arr)=> setHeadVibes(arr),
+    // knot a set of heads together during a negotiation (indices); [] untangles
+    setTangle: (arr)=> setTangle(arr),
     // throw a fireworks party for `secs` seconds (used when a task completes)
     celebrate: (secs)=>{ celebrateT = Math.max(celebrateT, (+secs)||3); for(let i=0;i<8;i++) spawnRocket(); return true; },
-    setState: (s={})=>{ if(Array.isArray(s.headVibes)) setHeadVibes(s.headVibes,true); else if(typeof s.vibe==='string') setVibe(s.vibe,true); if(s.count!=null) setHeads(s.count,true); emit('change', snapshot()); return snapshot(); },
+    setState: (s={})=>{ if(Array.isArray(s.headVibes)) setHeadVibes(s.headVibes,true); else if(typeof s.vibe==='string') setVibe(s.vibe,true); if(s.count!=null) setHeads(s.count,true); if(Array.isArray(s.tangle)) setTangle(s.tangle,true); emit('change', snapshot()); return snapshot(); },
     // getters
     count: ()=> heads.length,
     getVibe: ()=> VIBES[vibeIdx].name,
     getVibeIndex: ()=> vibeIdx,
+    getTangle: ()=> [...tangleSet],
     listVibes: ()=> VIBES.map(v=>v.name),
     getEndpoints: ()=> endpoints(),
     getState: ()=> snapshot(),
@@ -538,6 +580,8 @@
   const params = new URLSearchParams(location.search);
   if(params.has('showcase')){ setHeads(VIBES.length, true); setHeadVibes(VIBES.map(v=>v.name), true); }
   else if(params.get('vibe') && VIBE_BY_NAME[params.get('vibe')]){ setVibe(params.get('vibe'), true); }
+  //   ?tangle=0,2,3 -> knot those heads together (preview the negotiation tangle)
+  if(params.get('tangle')){ setTangle(params.get('tangle').split(',').map(Number), true); }
 
   requestAnimationFrame(frame);
 })();

@@ -73,13 +73,25 @@ export interface IntegratorOptions {
   logger?: (m: string) => void;
 }
 
-export type StepStatus = "merged" | "resolved" | "conflict" | "test-failed" | "escalated";
+export type StepStatus =
+  | "merged"
+  | "resolved"
+  | "conflict"
+  | "test-failed"
+  | "escalated"
+  /** Transient: a conflict is actively being negotiated. Overwritten in place by
+   *  the outcome (`resolved`/`conflict`/`escalated`/`test-failed`) once the
+   *  negotiator returns. Surfaced live so the UI can react while it runs. */
+  | "negotiating";
 
 export interface IntegrationStep {
   branch: string;
   status: StepStatus;
   conflictedFiles?: string[];
   detail?: string;
+  /** While `negotiating`: the already-staged branches this one is being
+   *  reconciled against (its counterparties in the negotiation). */
+  negotiatingWith?: string[];
 }
 
 export interface IntegrationResult {
@@ -174,8 +186,20 @@ export class Integrator {
         const merge = await this.mergeTool.mergeInto(wtGit, branch, `integrate ${branch}`);
 
         if (!merge.merged) {
+          // Mark the conflict as actively negotiating against the already-staged
+          // branches, and persist before the (potentially slow) rounds run — so a
+          // poll lands on it and the UI can react while the negotiation is live.
+          recordStep({
+            branch,
+            status: "negotiating",
+            conflictedFiles: merge.conflictedFiles,
+            negotiatingWith: stagedBranches(steps),
+            detail: `resolving conflict in ${merge.conflictedFiles.join(", ") || "merge"}`,
+          });
+          await this.writeState({ promoted: false, steps });
           const step = await this.handleTextualConflict(wtGit, wtPath, branch, merge.conflictedFiles);
-          recordStep(step);
+          recordStep(step, true); // overwrite the "negotiating" marker with the outcome
+          await this.writeState({ promoted: false, steps });
           if (step.status !== "resolved") {
             if (!this.opts.continueOnUnresolved) {
               return await this.finish({ promoted: false, steps }); // train halts; main untouched
@@ -185,14 +209,26 @@ export class Integrator {
           }
         } else {
           recordStep({ branch, status: "merged" });
+          await this.writeState({ promoted: false, steps });
         }
 
         // Test gate after every merge — this is where semantic conflicts surface.
         if (this.opts.testCommand) {
           const t = await execShell(this.opts.testCommand, wtPath, { timeoutMs: this.opts.testTimeoutMs });
           if (t.code !== 0) {
+            recordStep(
+              {
+                branch,
+                status: "negotiating",
+                negotiatingWith: stagedBranches(steps, branch),
+                detail: "test gate failed after merge — negotiating",
+              },
+              true, // overwrite the just-pushed "merged" with the live negotiation marker
+            );
+            await this.writeState({ promoted: false, steps });
             const step = await this.handleSemanticConflict(wtGit, wtPath, branch, t.stdout + t.stderr);
-            recordStep(step, true); // overwrite the just-pushed "merged" with the gate outcome
+            recordStep(step, true); // overwrite "negotiating" with the gate outcome
+            await this.writeState({ promoted: false, steps });
             if (step.status !== "resolved") {
               if (!this.opts.continueOnUnresolved) {
                 return await this.finish({ promoted: false, steps });
@@ -275,12 +311,20 @@ export class Integrator {
       promoted: result.promoted,
       mainHead: result.mainHead,
     });
-    if (this.opts.stateFile !== null) {
-      const file = this.opts.stateFile ?? path.join(this.opts.repoRoot, ".harness", "integration.json");
-      await mkdir(path.dirname(file), { recursive: true });
-      await writeFile(file, JSON.stringify({ ...result, updatedAt: new Date().toISOString() }, null, 2), "utf8");
-    }
+    await this.writeState(result);
     return result;
+  }
+
+  /**
+   * Persist a snapshot of the run for the UI to poll. Called both for the
+   * terminal result and for in-progress snapshots (so a slow negotiation is
+   * observable while it runs, not just after it finishes).
+   */
+  private async writeState(result: IntegrationResult): Promise<void> {
+    if (this.opts.stateFile === null) return;
+    const file = this.opts.stateFile ?? path.join(this.opts.repoRoot, ".harness", "integration.json");
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify({ ...result, updatedAt: new Date().toISOString() }, null, 2), "utf8");
   }
 
   private async handleTextualConflict(
@@ -335,4 +379,13 @@ export class Integrator {
       detail: res.detail ?? testOutput.slice(0, 2000),
     };
   }
+}
+
+/** Branches already assembled onto the staging branch — the counterparties a
+ *  newly-conflicting branch is negotiated against. `exclude` drops the branch
+ *  itself (semantic conflicts push a "merged" step before the gate runs). */
+function stagedBranches(steps: IntegrationStep[], exclude?: string): string[] {
+  return steps
+    .filter((s) => (s.status === "merged" || s.status === "resolved") && s.branch !== exclude)
+    .map((s) => s.branch);
 }

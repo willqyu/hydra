@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>harness · settings</title>
+    <style>
+      :root {
+        --bg: #0d1117; --panel: #161b22; --border: #30363d; --fg: #e6edf3;
+        --muted: #8b949e; --accent: #58a6ff; --ok: #3fb950; --fail: #f85149;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--fg);
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { scrollbar-width: thin; scrollbar-color: #30363d transparent; }
+      header {
+        display: flex; align-items: baseline; gap: 16px;
+        padding: 16px 24px; border-bottom: 1px solid var(--border);
+      }
+      header h1 { font-size: 16px; margin: 0; letter-spacing: 0.5px; }
+      header .navlink { color: var(--accent); text-decoration: none; font-size: 12px; }
+      header .navlink:hover { text-decoration: underline; }
+      header .dot { margin-left: auto; color: var(--muted); font-size: 12px; }
+      main { padding: 24px; display: flex; flex-direction: column; gap: 24px; max-width: 920px; }
+      .panel { background: var(--panel); border: 1px solid var(--border); }
+      .panel h2 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+        color: var(--muted); margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--border);
+      }
+      .panel .body { padding: 16px; display: grid; gap: 18px; }
+      .panel .note { color: var(--muted); font-size: 12px; margin: 0; }
+      .field label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+      .field .hint { color: var(--muted); font-size: 11px; margin: 0 0 6px; }
+      .field textarea, .field input {
+        width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+        padding: 8px 10px; font: inherit; font-size: 13px; line-height: 1.5;
+      }
+      .field textarea { resize: vertical; }
+      .field input { max-width: 360px; }
+      .actions { display: flex; align-items: center; gap: 12px; padding: 0 16px 16px; }
+      .actions button {
+        background: var(--bg); color: var(--accent); border: 1px solid var(--accent);
+        padding: 6px 18px; font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .actions button:hover:not(:disabled) { background: rgba(88,166,255,.12); }
+      .actions button:disabled { opacity: 0.5; cursor: default; }
+      .msg { font-size: 12px; color: var(--muted); }
+      .msg.ok { color: var(--ok); }
+      .msg.err { color: var(--fail); }
+      code { background: var(--bg); padding: 1px 5px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>⛓ harness · settings</h1>
+      <a class="navlink" href="/">← fleet</a>
+      <a class="navlink" href="/branches">branch log →</a>
+      <span class="dot" id="state">loading…</span>
+    </header>
+    <main>
+      <section class="panel">
+        <h2>Default system prompts</h2>
+        <div class="body" id="prompts">
+          <p class="note">
+            Appended to each agent's built-in brief via <code>--append-system-prompt</code> —
+            the harness's own instructions stay intact. Leave blank for no extra prompt.
+            Applies to newly spawned agents (running ones are unaffected).
+          </p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Default models</h2>
+        <div class="body" id="models">
+          <p class="note">
+            Passed as <code>--model</code> when spawning each role's agent.
+            Blank uses the Claude CLI's own default. Aliases like <code>opus</code>,
+            <code>sonnet</code> and <code>haiku</code> work, as do full model IDs.
+          </p>
+        </div>
+      </section>
+
+      <div class="actions" style="padding: 0">
+        <button id="save-btn">Save settings</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </main>
+
+    <datalist id="model-options">
+      <option value="opus"></option>
+      <option value="sonnet"></option>
+      <option value="haiku"></option>
+      <option value="claude-opus-4-8"></option>
+      <option value="claude-sonnet-4-6"></option>
+      <option value="claude-haiku-4-5"></option>
+    </datalist>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const ROLE_INFO = {
+        worker: "implements one task on its own branch + worktree",
+        supervisor: "plans a request — decides single worker vs fleet, decomposes and names branches",
+        negotiator: "resolves merge conflicts during integration (textual + semantic rounds)",
+      };
+      let roles = [];
+
+      function fieldHTML(kind, role) {
+        const control = kind === "prompts"
+          ? `<textarea rows="5" data-kind="prompts" data-role="${role}" placeholder="extra standing instructions for every ${role} agent…"></textarea>`
+          : `<input type="text" data-kind="models" data-role="${role}" list="model-options" placeholder="CLI default" />`;
+        return `<div class="field">
+            <label>${role}</label>
+            <p class="hint">${ROLE_INFO[role] || ""}</p>
+            ${control}
+          </div>`;
+      }
+
+      async function load() {
+        try {
+          const r = await fetch("/api/config");
+          const { config, roles: rs } = await r.json();
+          roles = rs || ["worker", "supervisor", "negotiator"];
+          $("prompts").insertAdjacentHTML("beforeend", roles.map((x) => fieldHTML("prompts", x)).join(""));
+          $("models").insertAdjacentHTML("beforeend", roles.map((x) => fieldHTML("models", x)).join(""));
+          document.querySelectorAll("[data-kind]").forEach((el) => {
+            el.value = (config[el.dataset.kind] || {})[el.dataset.role] || "";
+          });
+          $("state").textContent = "config: .harness/config.json";
+        } catch (e) {
+          $("state").textContent = "disconnected";
+        }
+      }
+
+      async function save() {
+        const cfg = { prompts: {}, models: {} };
+        document.querySelectorAll("[data-kind]").forEach((el) => {
+          const v = el.value.trim();
+          if (v) cfg[el.dataset.kind][el.dataset.role] = v;
+        });
+        const btn = $("save-btn"), msg = $("msg");
+        btn.disabled = true; msg.className = "msg"; msg.textContent = "saving…";
+        try {
+          const r = await fetch("/api/config", {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cfg),
+          });
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
+          // Reflect what the server actually kept (it drops malformed model names).
+          document.querySelectorAll("[data-kind]").forEach((el) => {
+            el.value = (j.config[el.dataset.kind] || {})[el.dataset.role] || "";
+          });
+          msg.className = "msg ok"; msg.textContent = "✓ saved — applies to newly spawned agents";
+        } catch (e) {
+          msg.className = "msg err"; msg.textContent = "✗ " + e.message;
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      $("save-btn").addEventListener("click", save);
+      load();
+    </script>
+  </body>
+</html>

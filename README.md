@@ -91,9 +91,14 @@ failure, and a `disco` + fireworks party when a task lands. Drag a head and its
 neck stretches like an elastic band (stressed face and a startled `!` included);
 let go and it springs back. Click a head to make it jump, or bop the body to hop
 the whole fleet. A spawning worker's head grows out of the body; once a branch
-merges into `main` it folds in with a puff of smoke. Served at `/hydra.html` —
-drive it via `window.hydra` or the postMessage bridge; `?showcase` parades every
-mode at once.
+merges into `main` it folds in with a puff of smoke. When a branch hits a
+conflict during integration, the heads of the branches being reconciled
+**tangle** together — they huddle onto a shared knot and their necks braid and
+strain — then spring apart once the negotiation resolves or escalates. (The
+integrator persists a transient `negotiating` step while the bounded rounds run,
+so the dashboard poll catches the tangle live.) Served at `/hydra.html` — drive
+it via `window.hydra` (`setTangle([i,…])`) or the postMessage bridge;
+`?showcase` parades every mode at once, `?tangle=0,2,3` previews a knot.
 
 ## Per-agent interaction
 

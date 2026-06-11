@@ -27,7 +27,7 @@ export interface StreamingClaudeAgentRunnerOptions {
   logger?: (m: string) => void;
 }
 
-const DEFAULT_ARGS = [
+export const STREAMING_DEFAULT_ARGS = [
   "--input-format", "stream-json",
   "--output-format", "stream-json",
   "--permission-mode", "acceptEdits",
@@ -65,7 +65,7 @@ export class StreamingClaudeAgentRunner implements WorkerRunner {
 
   async run(ctx: WorkerContext): Promise<WorkerResult> {
     const bin = this.opts.bin ?? defaultClaudeBin();
-    const args = this.opts.args ?? DEFAULT_ARGS;
+    const args = this.opts.args ?? STREAMING_DEFAULT_ARGS;
     const format = this.opts.formatMessage ?? defaultFormat;
     const prompt = (this.opts.buildPrompt ?? defaultPrompt)(ctx);
     const events = this.opts.events;

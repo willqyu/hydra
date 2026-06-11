@@ -11,6 +11,7 @@ import { readBranchLog } from "./branches.js";
 import { InboxManager, type InboxKind } from "./inbox.js";
 import { Registry } from "./registry.js";
 import { CheckpointManager } from "./checkpoint.js";
+import { loadConfig, saveConfig, CONFIG_ROLES } from "./config.js";
 import { WorktreeManager } from "./worktree.js";
 import { Git } from "./git.js";
 
@@ -244,6 +245,55 @@ export function startServer(opts: ServerOptions): http.Server {
         return send(res, 200, "application/json", JSON.stringify({ ok: true, detail: r.stdout.trim() }));
       }
 
+      if (req.method === "POST" && url.pathname === "/api/config") {
+        const body = await readBody(req);
+        let raw: unknown;
+        try { raw = JSON.parse(body || "{}"); } catch {
+          return send(res, 400, "application/json", '{"error":"invalid JSON"}');
+        }
+        const cfg = await saveConfig(opts.repoRoot, raw);
+        log("config updated (prompts/models)");
+        return send(res, 200, "application/json", JSON.stringify({ ok: true, config: cfg }));
+      }
+
+      if (url.pathname === "/api/config") {
+        const cfg = await loadConfig(opts.repoRoot);
+        return send(res, 200, "application/json", JSON.stringify({ config: cfg, roles: CONFIG_ROLES }));
+      }
+
+      if (url.pathname === "/api/tasks") {
+        // Searchable task catalogue for the "continue from" picker: every branch
+        // the harness knows (registry + checkpoints), matched against BOTH the
+        // branch name and the task's initial prompt (the checkpoint description).
+        const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+        const reg = await Registry.open(path.join(opts.repoRoot, ".harness", "registry.json"));
+        const cps = await new CheckpointManager(path.join(opts.repoRoot, ".harness", "checkpoints")).list();
+        const cpByBranch = new Map(cps.map((c) => [c.branch, c]));
+        const seen = new Set<string>();
+        const tasks: Array<{ branch: string; taskId: string; state: string; description: string; updatedAt: string }> = [];
+        for (const e of reg.all()) {
+          const cp = cpByBranch.get(e.branch);
+          tasks.push({ branch: e.branch, taskId: e.taskId, state: e.state, description: cp?.description ?? "", updatedAt: e.updatedAt });
+          seen.add(e.branch);
+        }
+        for (const c of cps) {
+          // Orphan checkpoints (no registry entry) are still continuable work.
+          if (!seen.has(c.branch)) tasks.push({ branch: c.branch, taskId: c.taskId, state: "completed", description: c.description, updatedAt: c.createdAt });
+        }
+        const terms = q.split(/\s+/).filter(Boolean);
+        const matched = terms.length
+          ? tasks.filter((t) => {
+              const hay = `${t.branch} ${t.taskId} ${t.description}`.toLowerCase();
+              return terms.every((w) => hay.includes(w));
+            })
+          : tasks;
+        const out = matched
+          .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+          .slice(0, 50)
+          .map((t) => ({ ...t, description: t.description.slice(0, 240) }));
+        return send(res, 200, "application/json", JSON.stringify({ tasks: out }));
+      }
+
       if (url.pathname === "/api/status") {
         const status = await readFleetStatus(opts.repoRoot);
         return send(res, 200, "application/json", JSON.stringify({ ...status, integrating }));
@@ -303,6 +353,10 @@ export function startServer(opts: ServerOptions): http.Server {
       }
       if (url.pathname === "/hydra" || url.pathname === "/hydra.html") {
         const html = await readFile(path.join(WEB_DIR, "hydra.html"), "utf8");
+        return send(res, 200, "text/html; charset=utf-8", html);
+      }
+      if (url.pathname === "/settings" || url.pathname === "/settings.html") {
+        const html = await readFile(path.join(WEB_DIR, "settings.html"), "utf8");
         return send(res, 200, "text/html; charset=utf-8", html);
       }
       send(res, 404, "text/plain", "not found");

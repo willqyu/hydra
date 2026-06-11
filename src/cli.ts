@@ -4,7 +4,8 @@ import path from "node:path";
 import { Git } from "./git.js";
 import { Orchestrator } from "./orchestrator.js";
 import { ClaudeAgentRunner } from "./worker.js";
-import { StreamingClaudeAgentRunner } from "./streaming-worker.js";
+import { StreamingClaudeAgentRunner, STREAMING_DEFAULT_ARGS } from "./streaming-worker.js";
+import { loadConfig, roleArgs, type HarnessConfig } from "./config.js";
 import { InboxManager } from "./inbox.js";
 import { Integrator } from "./integrator.js";
 import { Negotiator } from "./negotiator.js";
@@ -58,19 +59,22 @@ function agentArgs(f: Flags): string[] {
     : ["-p", "--permission-mode", "acceptEdits"];
 }
 
-/** Build the worker runner the run/plan commands share (interactive or one-shot). */
-function makeRunner(f: Flags, events: HarnessEvents) {
+/** Build the worker runner the run/plan commands share (interactive or one-shot).
+ *  Applies the repo's configured default model + extra system prompt for workers. */
+function makeRunner(f: Flags, events: HarnessEvents, cfg: HarnessConfig) {
+  const worker = roleArgs(cfg, "worker");
   if (f.interactive) {
     console.log("interactive mode — steer agents via `harness inject` or the dashboard");
     return new StreamingClaudeAgentRunner({
       bin: str(f, "agent-bin") || undefined,
+      args: [...STREAMING_DEFAULT_ARGS, ...worker],
       events,
       logger: (m) => console.log("  " + m),
     });
   }
   return new ClaudeAgentRunner({
     bin: str(f, "agent-bin") || undefined,
-    args: agentArgs(f),
+    args: [...agentArgs(f), ...worker],
     logger: (m) => console.log("  " + m),
   });
 }
@@ -82,9 +86,10 @@ async function runFleet(
   opts: { concurrency?: number; baseRef?: string } = {},
 ): Promise<void> {
   const events = logEvents();
+  const cfg = await loadConfig(repo);
   const result = await new Orchestrator({
     repoRoot: repo,
-    runner: makeRunner(f, events),
+    runner: makeRunner(f, events, cfg),
     concurrency: num(f, "concurrency", opts.concurrency ?? 4),
     baseRef: str(f, "base") || opts.baseRef || undefined,
     events,
@@ -129,8 +134,10 @@ async function cmdPlan(f: Flags): Promise<void> {
   // When continuing an UN-integrated branch, stack commits on it in place; only
   // fork a fresh branch when the source already landed in main.
   let attachBranch = false;
+  const cfg = await loadConfig(repo);
+  const supervisorArgs = [...agentArgs(f), ...roleArgs(cfg, "supervisor")];
   // Branch names come from a Claude summary of the task, not the first few words.
-  const named = (d: string) => nameBranch(d, { repoRoot: repo, args: agentArgs(f), logger: (m) => console.log(m) });
+  const named = (d: string) => nameBranch(d, { repoRoot: repo, args: supervisorArgs, logger: (m) => console.log(m) });
 
   if (req.continueFrom) {
     const cont = await buildContinuation(repo, req.continueFrom, originalDesc);
@@ -154,7 +161,7 @@ async function cmdPlan(f: Flags): Promise<void> {
   } else {
     plan = await superviseTask(description, {
       repoRoot: repo,
-      args: agentArgs(f),
+      args: supervisorArgs,
       logger: (m) => console.log(m),
     });
     // Honor an explicit/continuation branch name when the supervisor kept it single.
@@ -248,7 +255,11 @@ async function cmdIntegrate(f: Flags): Promise<void> {
   }
 
   const testCommand = str(f, "test") || undefined;
-  const resolver = new ClaudeConflictResolver({ bin: str(f, "agent-bin") || undefined, args: agentArgs(f) });
+  const cfg = await loadConfig(repo);
+  const resolver = new ClaudeConflictResolver({
+    bin: str(f, "agent-bin") || undefined,
+    args: [...agentArgs(f), ...roleArgs(cfg, "negotiator")],
+  });
   const negotiator = new Negotiator({
     resolvers: [resolver],
     tieBreaker: resolver,

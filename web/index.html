@@ -36,13 +36,15 @@
       header .dot { margin-left: auto; color: var(--muted); font-size: 12px; }
       main { padding: 24px; display: flex; gap: 24px; align-items: flex-start; }
       .col-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
+      /* Not sticky: the sidebar can grow taller than the viewport, and pinning it
+         made its lower panels (Integration, Agents) unreachable by page scroll. */
       .col-side {
-        flex: 0 0 420px; min-width: 0; position: sticky; top: 24px;
+        flex: 0 0 420px; min-width: 0;
         display: flex; flex-direction: column; gap: 24px;
       }
       @media (max-width: 1180px) {
         main { flex-direction: column; }
-        .col-side { flex: 1 1 auto; width: 100%; position: static; }
+        .col-side { flex: 1 1 auto; width: 100%; }
       }
       .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 0; }
       .panel h2 {
@@ -139,7 +141,25 @@
       }
       .action-bar input { flex: 1; min-width: 160px; }
       .action-bar select { cursor: pointer; max-width: 220px; }
-      .ctrl button[data-act="extend"]:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+      .ctrl button[data-act="extend"]:not(:disabled),
+      .ctrl button[data-act="extend-merged"]:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+      /* Searchable "continue from" combobox in the Spawn panel. */
+      .combo { position: relative; flex: 1 1 220px; min-width: 200px; max-width: 360px; }
+      .combo input { width: 100%; }
+      .combo input.picked { border-color: var(--accent); color: var(--accent); }
+      .combo-list {
+        position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+        background: var(--panel); border: 1px solid var(--border);
+        max-height: 300px; overflow: auto; box-shadow: 0 12px 32px rgba(1,4,9,.6);
+      }
+      .combo-item { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--border); }
+      .combo-item:last-child { border-bottom: none; }
+      .combo-item:hover { background: rgba(88,166,255,.1); }
+      .combo-item b { font-size: 12px; }
+      .combo-item .desc {
+        font-size: 11px; color: var(--muted);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
       .ctrl button.danger:not(:disabled) { border-color: var(--fail); color: var(--fail); }
       .ctrl button.danger:hover:not(:disabled) { background: rgba(248,81,73,.12); }
       .ctrl button:disabled { opacity: 0.4; cursor: default; }
@@ -211,12 +231,13 @@
     <header>
       <h1>⛓ harness</h1>
       <a class="navlink" href="/branches">branch log →</a>
+      <a class="navlink" href="/settings">settings →</a>
       <span class="repo" id="repo">—</span>
       <span class="dot" id="updated">connecting…</span>
     </header>
     <main>
       <div class="col-main">
-      <section class="panel">
+      <section class="panel" id="spawn-panel">
         <h2>Spawn worker</h2>
         <div class="spawn">
           <textarea id="spawn-desc" rows="3" placeholder="Describe the task — the supervisor decides if it needs one worker or a fleet of branches…"></textarea>
@@ -226,9 +247,10 @@
               <option value="single">Single worker</option>
               <option value="split">Split into a fleet</option>
             </select>
-            <select id="spawn-continue" title="Continue a previous task (seeds its full context)">
-              <option value="">— new task —</option>
-            </select>
+            <div class="combo" id="continue-combo" title="Continue a previous task (seeds its full context) — searches branch names and original prompts">
+              <input id="spawn-continue" type="text" placeholder="— new task — type to search previous tasks" autocomplete="off" />
+              <div class="combo-list" id="continue-list" hidden></div>
+            </div>
             <input id="spawn-branch" type="text" placeholder="branch name (optional)" />
             <button id="spawn-btn">Spawn</button>
             <span id="spawn-msg" class="muted"></span>
@@ -256,7 +278,7 @@
         <section class="panel hydra-panel">
           <h2>Fleet hydra <span id="hydra-cap" class="muted"></span></h2>
           <iframe id="hydra-frame" class="hydra-frame" src="/hydra.html?embed=1" title="Fleet hydra" loading="lazy"></iframe>
-          <p class="hint hydra-hint">One head per worker · vibe tracks fleet state — <code>sleepy</code> idle · <code>busy</code> working · <code>disco</code> integrating · <code>panic</code> failure/escalation · <code>chill</code> all done.</p>
+          <p class="hint hydra-hint">One head per worker · vibe tracks fleet state — <code>sleepy</code> idle · <code>busy</code> working · <code>disco</code> integrating · <code>panic</code> failure/escalation · <code>chill</code> all done. Heads <b>tangle</b> together while their branches are mid-negotiation.</p>
         </section>
 
         <section class="panel">
@@ -315,16 +337,19 @@
 
       function controlsCell(w, inbox, repo) {
         const b = esc(w.branch);
-        // Extend steers a running worker or continues a finished one in place.
-        // Once the branch is in main there's nothing to extend — grey it out.
+        // Steer redirects a running worker or continues a finished one in place.
+        // Once the branch is in main, Extend instead picks this task in the Spawn
+        // panel — a new worker continues it with its full context preserved.
         const extend = w.merged
-          ? `<button data-act="extend" disabled title="already integrated into main">Extend</button>`
-          : `<button data-act="extend" title="extend this task before it's integrated">Extend</button>`;
+          ? `<button data-act="extend-merged" title="already in main — click to select this task in Spawn Worker and extend it (context preserved)">Extend</button>`
+          : `<button data-act="extend" title="steer this task before it's integrated">Steer</button>`;
         // Switch the primary working tree to this branch — only from a clean tree,
         // and not while the branch is busy in its own worker worktree.
         const isCurrent = repo && repo.branch === w.branch;
         let checkout;
-        if (isCurrent) checkout = `<button disabled title="working tree is already on this branch">✓ on tree</button>`;
+        // Once merged, the work lives in main — no per-branch checkout to offer.
+        if (w.merged) checkout = "";
+        else if (isCurrent) checkout = `<button disabled title="working tree is already on this branch">✓ on tree</button>`;
         else if (w.state === "running") checkout = `<button disabled title="branch is checked out in its worker worktree">Checkout</button>`;
         else if (repo && repo.dirty) checkout = `<button disabled title="stash or commit changes first">Checkout</button>`;
         else checkout = `<button data-act="checkout" title="switch the working tree to this branch">Checkout</button>`;
@@ -546,6 +571,8 @@
           if (text) { postJSON("/api/inject", { branch, text }); input.value = ""; }
         } else if (act === "extend") {
           openExtendModal(branch, btn.closest("tr"));
+        } else if (act === "extend-merged") {
+          pickMergedTask(branch);
         } else if (act === "checkout") {
           doCheckout(branch);
         } else if (act === "delete") {
@@ -619,17 +646,26 @@
       function openExtendModal(branch, row) {
         const running = row && /s-running/.test(row.innerHTML);
         openModal({
-          title: `Extend "${branch}"`,
+          title: `Steer "${branch}"`,
           hint: running
             ? "This worker is running — your message is delivered to it live."
             : "This branch is finished but not yet integrated — a worker continues it in place, stacking new commits on the same branch.",
-          withText: true, submitLabel: "Extend",
+          withText: true, submitLabel: "Steer",
           onSubmit: async (text) => {
             if (!text) throw new Error("enter an instruction");
             const j = await api("/api/extend", { branch, text });
             $("spawn-msg").textContent = j.mode === "injected" ? `✓ steered ${branch}` : `✓ continuing ${branch}`;
           },
         });
+      }
+
+      // A merged branch can't be steered in place — instead pick it in the Spawn
+      // panel so a fresh worker continues it with its full context preserved.
+      function pickMergedTask(branch) {
+        setContinue(branch);
+        $("spawn-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+        $("spawn-desc").focus({ preventScroll: true });
+        $("spawn-msg").textContent = `extending merged ${branch} — describe the follow-up, then Spawn`;
       }
       function openDeleteModal(branch) {
         openModal({
@@ -686,7 +722,7 @@
         const desc = $("spawn-desc").value.trim();
         const branch = $("spawn-branch").value.trim();
         const mode = $("spawn-mode").value;
-        const continueFrom = $("spawn-continue").value;
+        const continueFrom = continueBranch;
         if (!desc) { $("spawn-msg").textContent = "describe a task first"; return; }
         const btn = $("spawn-btn");
         btn.disabled = true;
@@ -697,7 +733,7 @@
             ? "✓ continuation of " + continueFrom + " started"
             : (mode === "single" ? "✓ worker spawned" : "✓ supervisor planning the fleet…");
           $("spawn-desc").value = ""; $("spawn-branch").value = "";
-          $("spawn-continue").value = "";
+          setContinue("");
         } catch (e) {
           $("spawn-msg").textContent = "✗ " + e.message;
         } finally {
@@ -706,24 +742,55 @@
         }
       });
 
-      // Populate the "Continue from" picker from every branch the harness knows
-      // (registry + checkpoints), preserving the user's current selection.
-      function populateContinue(s) {
-        const sel = $("spawn-continue");
-        if (!sel) return;
-        const branches = new Set();
-        (s.workers || []).forEach((w) => branches.add(w.branch));
-        (s.checkpoints || []).forEach((c) => branches.add(c.branch));
-        const html = ['<option value="">— new task —</option>']
-          .concat([...branches].sort().map((b) => `<option value="${esc(b)}">${esc(b)}</option>`))
-          .join("");
-        if (sel.dataset.sig !== html) {
-          const cur = sel.value;
-          sel.innerHTML = html;
-          sel.dataset.sig = html;
-          sel.value = cur; // keep the user's choice across refreshes
-        }
+      // ---- "Continue from" combobox: searches /api/tasks, which matches both
+      // branch names and each task's original prompt. A branch is only used as
+      // continueFrom once explicitly picked from the list. ----
+      let continueBranch = "";
+      function setContinue(branch) {
+        continueBranch = branch || "";
+        const input = $("spawn-continue");
+        input.value = continueBranch;
+        input.classList.toggle("picked", !!continueBranch);
+        $("continue-list").hidden = true;
       }
+      async function comboSearch() {
+        const q = $("spawn-continue").value.trim();
+        let tasks = [];
+        try { tasks = (await (await fetch(`/api/tasks?q=${encodeURIComponent(q)}`)).json()).tasks || []; } catch (e) {}
+        const list = $("continue-list");
+        list.innerHTML = tasks.length
+          ? tasks.map((t) => `
+              <div class="combo-item" data-branch="${esc(t.branch)}">
+                <b>${esc(t.branch)}</b> ${badge(t.state)}
+                <div class="desc">${esc(t.description || "(no recorded prompt)")}</div>
+              </div>`).join("")
+          : '<div class="combo-item muted">no matching tasks</div>';
+        list.hidden = false;
+      }
+      let comboTimer = null;
+      $("spawn-continue").addEventListener("input", () => {
+        // Typing turns the field back into a search; the previous pick is void.
+        continueBranch = "";
+        $("spawn-continue").classList.remove("picked");
+        clearTimeout(comboTimer);
+        comboTimer = setTimeout(comboSearch, 150);
+      });
+      $("spawn-continue").addEventListener("focus", comboSearch);
+      $("spawn-continue").addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { $("continue-list").hidden = true; }
+        else if (e.key === "Enter" && !$("continue-list").hidden) {
+          const first = $("continue-list").querySelector(".combo-item[data-branch]");
+          if (first) setContinue(first.dataset.branch);
+        }
+      });
+      // mousedown (not click) so the pick lands before the input blurs.
+      $("continue-list").addEventListener("mousedown", (e) => {
+        const item = e.target.closest(".combo-item[data-branch]");
+        if (item) { e.preventDefault(); setContinue(item.dataset.branch); }
+      });
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest("#continue-combo")) $("continue-list").hidden = true;
+      });
 
       // Recommend integration once every worker is terminal and there are
       // completed branches not yet folded into main.
@@ -740,10 +807,13 @@
         btn.disabled = false; btn.textContent = "Integrate completed branches";
         const completed = workers.filter((w) => w.state === "completed");
         const allTerminal = workers.length > 0 && workers.every((w) => w.state === "completed" || w.state === "failed");
+        // A branch already in main (w.merged, computed via merge-base) is done even
+        // if no current integration step records it — that's the authoritative
+        // "already integrated" signal; the steps set only covers the last run.
         const done = new Set(((s.integration && s.integration.steps) || [])
           .filter((st) => ["merged", "resolved", "ok", "promoted"].includes(String(st.status)))
           .map((st) => st.branch));
-        const pending = completed.filter((w) => !done.has(w.branch));
+        const pending = completed.filter((w) => !w.merged && !done.has(w.branch));
         if (allTerminal && pending.length > 0) {
           rec.innerHTML = `<div class="rec">▲ <b>${pending.length}</b> branch${pending.length !== 1 ? "es" : ""} finished and ready to integrate into main — ${pending.map((w) => esc(w.branch)).join(", ")}</div>`;
           btn.classList.add("go");
@@ -880,7 +950,6 @@
           $("updated").textContent = "updated " + new Date(s.generatedAt).toLocaleTimeString();
           $("integration").innerHTML = renderIntegration(s.integration);
           renderRecommend(s);
-          populateContinue(s);
 
           // Preserve a half-typed message across the refresh.
           const focused = document.activeElement;
@@ -965,19 +1034,41 @@
         const vibes = live
           .map((w) => (celebrateUntil[w.branch] > now ? "disco" : workerVibe(w, s, escalated)))
           .slice(0, 18);
-        const send = vibes.length ? vibes : ["sleepy"];
+        // No live workers => no heads (the hydra rests as just its body), rather
+        // than a phantom head with nothing behind it.
+        const send = vibes;
         // caption: head count + a per-vibe breakdown
         const counts = {};
         send.forEach((v) => (counts[v] = (counts[v] || 0) + 1));
         const cap = $("hydra-cap");
         if (cap)
-          cap.textContent =
-            `${send.length} head${send.length !== 1 ? "s" : ""} · ` +
-            Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(" · ");
+          cap.textContent = send.length
+            ? `${send.length} head${send.length !== 1 ? "s" : ""} · ` +
+              Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(" · ")
+            : "no active workers";
+        // Negotiation tangle: heads whose branches are mid-negotiation knot
+        // together with their counterparties. The negotiator persists a transient
+        // "negotiating" step (with negotiatingWith = staged counterpart branches)
+        // while the bounded rounds run, so the 2s poll lands on it.
+        const idxOf = {};
+        live.slice(0, 18).forEach((w, i) => (idxOf[w.branch] = i));
+        const tangle = new Set();
+        ((s.integration && s.integration.steps) || [])
+          .filter((st) => String(st.status) === "negotiating")
+          .forEach((st) => {
+            if (idxOf[st.branch] != null) tangle.add(idxOf[st.branch]);
+            (st.negotiatingWith || []).forEach((b) => {
+              if (idxOf[b] != null) tangle.add(idxOf[b]);
+            });
+          });
         const frame = $("hydra-frame");
         if (frame && frame.contentWindow) {
           frame.contentWindow.postMessage(
             { source: "hydra-cmd", cmd: "setHeadVibes", arg: send },
+            location.origin
+          );
+          frame.contentWindow.postMessage(
+            { source: "hydra-cmd", cmd: "setTangle", arg: [...tangle] },
             location.origin
           );
         }
