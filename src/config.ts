@@ -5,30 +5,78 @@ export const CONFIG_ROLES = ["worker", "supervisor", "negotiator"] as const;
 export type AgentRole = (typeof CONFIG_ROLES)[number];
 
 /**
+ * The standing system prompt each role ships with. These are the harness's own
+ * instructions for the role (the behavioral guidance that used to be baked into
+ * each agent's seed brief); the dynamic/structural parts — branch, worktree,
+ * task, the supervisor's JSON contract — still live in code. The Settings page
+ * pre-fills its prompt boxes with these, so editing starts from what the agent
+ * actually gets today rather than a blank box. A saved override replaces the
+ * default for that role; clearing the box falls back here.
+ */
+export const DEFAULT_PROMPTS: Record<AgentRole, string> = {
+  worker: [
+    "Implement the task end to end in your worktree. Commit your work INCREMENTALLY:",
+    "after each logical step or working sub-change, run `git add -A && git commit`",
+    "with a clear message — do NOT wait until the very end to make a single commit.",
+    "Frequent commits keep your progress safe and make integration easier. Keep the",
+    "change scoped to the task, and do NOT write a summary or wrap-up of your work at",
+    "the end — just make the commits and stop when the task is done.",
+  ].join("\n"),
+  supervisor: [
+    "You are the SUPERVISOR for a parallel multi-agent coding harness. Split a task",
+    "across multiple branches ONLY when it genuinely decomposes into parts that can",
+    "progress independently, and design the split to MINIMIZE OVERLAP — partition by",
+    "file/module/feature boundaries so two workers rarely touch the same lines",
+    "(overlap manufactures merge conflicts). Put a real dependency in `blockedBy`",
+    "when one part must build on another's output. Assign each task a `priority`",
+    "(1 = highest); give core/foundational work the highest priority. Explore the",
+    "repository as needed to ground the plan in the real code.",
+  ].join("\n"),
+  negotiator: [
+    "You are a careful merge-conflict resolver, integrating one branch at a time.",
+    "Aim for a minimal, correct result that preserves the intent of BOTH sides —",
+    "never drop one side's work just to make the conflict go away. When a test gate",
+    "guards the merge, prefer the smallest change that makes it pass.",
+  ].join("\n"),
+};
+
+/**
  * Per-repo harness defaults, persisted at .harness/config.json and edited from
  * the dashboard's Settings page. Prompts are APPENDED to each agent's built-in
- * brief (via `claude --append-system-prompt`), never replacing it; models go
- * through `claude --model`. Empty = the CLI's own default.
+ * brief (via `claude --append-system-prompt`); an empty/absent role prompt falls
+ * back to DEFAULT_PROMPTS for that role. Models go through `claude --model`;
+ * empty = the CLI's own default.
  */
 export interface HarnessConfig {
   prompts: Partial<Record<AgentRole, string>>;
   models: Partial<Record<AgentRole, string>>;
 }
 
+/** The system prompt actually applied for a role: a saved override, else the default. */
+export function effectivePrompt(cfg: HarnessConfig, role: AgentRole): string {
+  return cfg.prompts[role] ?? DEFAULT_PROMPTS[role];
+}
+
 function configFile(repoRoot: string): string {
   return path.join(repoRoot, ".harness", "config.json");
 }
 
-/** Keep only known roles and safe values — a model name must look like a model
- *  name, not a CLI flag, since it lands in a spawn argv. */
+/** A model name must look like a model name (alias or id), not a CLI flag, since
+ *  it lands in a spawn argv. Returns the cleaned name, or "" if unusable. */
+export function sanitizeModel(raw: unknown): string {
+  const m = typeof raw === "string" ? raw.trim() : "";
+  return /^[a-zA-Z0-9][\w.:@-]*$/.test(m) ? m : "";
+}
+
+/** Keep only known roles and safe values. */
 export function sanitizeConfig(raw: unknown): HarnessConfig {
   const r = (raw ?? {}) as { prompts?: Record<string, unknown>; models?: Record<string, unknown> };
   const cfg: HarnessConfig = { prompts: {}, models: {} };
   for (const role of CONFIG_ROLES) {
     const p = r.prompts?.[role];
     if (typeof p === "string" && p.trim()) cfg.prompts[role] = p.trim();
-    const m = r.models?.[role];
-    if (typeof m === "string" && /^[a-zA-Z0-9][\w.:@-]*$/.test(m.trim())) cfg.models[role] = m.trim();
+    const m = sanitizeModel(r.models?.[role]);
+    if (m) cfg.models[role] = m;
   }
   return cfg;
 }
@@ -48,11 +96,16 @@ export async function saveConfig(repoRoot: string, raw: unknown): Promise<Harnes
   return cfg;
 }
 
-/** Extra `claude` CLI args applying one role's configured model + system prompt. */
-export function roleArgs(cfg: HarnessConfig, role: AgentRole): string[] {
+/**
+ * Extra `claude` CLI args applying one role's model + system prompt. The system
+ * prompt is the role's effective prompt (override or default). `modelOverride`,
+ * when given (e.g. a per-run model picked in the dashboard), wins over the
+ * configured model for this invocation only.
+ */
+export function roleArgs(cfg: HarnessConfig, role: AgentRole, modelOverride?: string): string[] {
   const out: string[] = [];
-  const model = cfg.models[role];
-  const prompt = cfg.prompts[role];
+  const model = modelOverride?.trim() || cfg.models[role];
+  const prompt = effectivePrompt(cfg, role);
   if (model) out.push("--model", model);
   if (prompt) out.push("--append-system-prompt", prompt);
   return out;

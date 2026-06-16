@@ -49,6 +49,9 @@ export interface ClaudeAgentRunnerOptions {
   logger?: (m: string) => void;
 }
 
+// Dynamic seed only — the behavioral guidance (incremental commits, scope, no
+// wrap-up) arrives as the worker's system prompt (config DEFAULT_PROMPTS.worker),
+// so it's editable in Settings and lives in exactly one place.
 function defaultPrompt(ctx: WorkerContext): string {
   return [
     `You are an autonomous worker on git branch "${ctx.branch}".`,
@@ -56,13 +59,6 @@ function defaultPrompt(ctx: WorkerContext): string {
     "",
     "Task:",
     ctx.description,
-    "",
-    "Implement the task end to end in this worktree. Commit your work INCREMENTALLY:",
-    "after each logical step or working sub-change, run `git add -A && git commit`",
-    "with a clear message — do NOT wait until the very end to make a single commit.",
-    "Frequent commits keep your progress safe and make integration easier.",
-    "Keep the change scoped to this task. Do NOT write a summary or wrap-up of your",
-    "work at the end — just make the commits and stop when the task is done.",
   ].join("\n");
 }
 

@@ -21,8 +21,8 @@ function textualPrompt(req: ResolutionRequest): string {
     ...req.conflictedFiles.map((f) => `- ${f.path}`),
     "",
     "Edit the files in place to a correct, merged result. Remove ALL conflict",
-    "markers (<<<<<<<, =======, >>>>>>>). Preserve the intent of both sides. Do",
-    "NOT commit — just leave the resolved files on disk.",
+    "markers (<<<<<<<, =======, >>>>>>>). Do NOT commit — just leave the resolved",
+    "files on disk.",
   ].join("\n");
 }
 

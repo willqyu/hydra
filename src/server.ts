@@ -11,7 +11,7 @@ import { readBranchLog } from "./branches.js";
 import { InboxManager, type InboxKind } from "./inbox.js";
 import { Registry } from "./registry.js";
 import { CheckpointManager } from "./checkpoint.js";
-import { loadConfig, saveConfig, CONFIG_ROLES } from "./config.js";
+import { loadConfig, saveConfig, sanitizeModel, CONFIG_ROLES, DEFAULT_PROMPTS } from "./config.js";
 import { WorktreeManager } from "./worktree.js";
 import { Git } from "./git.js";
 
@@ -125,7 +125,7 @@ export function startServer(opts: ServerOptions): http.Server {
 
       if (req.method === "POST" && url.pathname === "/api/spawn") {
         const body = await readBody(req);
-        const { description, branch, mode, continueFrom } = JSON.parse(body || "{}");
+        const { description, branch, mode, continueFrom, model } = JSON.parse(body || "{}");
         if (!description || !String(description).trim()) {
           return send(res, 400, "application/json", '{"error":"description required"}');
         }
@@ -136,11 +136,13 @@ export function startServer(opts: ServerOptions): http.Server {
           branch: sanitizeBranch(branch) || undefined,
           mode: ["single", "auto", "split"].includes(mode) ? mode : "auto",
           continueFrom: continueFrom ? sanitizeBranch(continueFrom) : undefined,
+          // Per-run worker model override (a model picked in the Spawn panel).
+          model: sanitizeModel(model) || undefined,
         };
         const reqFile = path.join(os.tmpdir(), `harness-plan-${Date.now().toString(36)}.json`);
         await writeFile(reqFile, JSON.stringify(request, null, 2));
         spawnHarness(opts.repoRoot, ["plan", reqFile, "--repo", opts.repoRoot, "--dangerous"], "spawn.log", true);
-        log(`plan spawned (mode=${request.mode}${request.continueFrom ? `, continue ${request.continueFrom}` : ""})`);
+        log(`plan spawned (mode=${request.mode}${request.continueFrom ? `, continue ${request.continueFrom}` : ""}${request.model ? `, model ${request.model}` : ""})`);
         return send(res, 200, "application/json", JSON.stringify({ ok: true, planning: true }));
       }
 
@@ -258,7 +260,9 @@ export function startServer(opts: ServerOptions): http.Server {
 
       if (url.pathname === "/api/config") {
         const cfg = await loadConfig(opts.repoRoot);
-        return send(res, 200, "application/json", JSON.stringify({ config: cfg, roles: CONFIG_ROLES }));
+        // `defaults` lets the Settings page pre-fill each prompt box with the
+        // standing system prompt the role actually ships with.
+        return send(res, 200, "application/json", JSON.stringify({ config: cfg, roles: CONFIG_ROLES, defaults: DEFAULT_PROMPTS }));
       }
 
       if (url.pathname === "/api/tasks") {

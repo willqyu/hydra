@@ -31,25 +31,16 @@ function slug(s: string, n = 28): string {
   );
 }
 
+// The behavioral heuristics (when to split, minimize overlap, priorities, …)
+// ship as the supervisor's system prompt (config DEFAULT_PROMPTS.supervisor) and
+// are editable in Settings. This seed keeps only the task and the strict JSON
+// output contract the parser depends on.
 function planPrompt(description: string): string {
   return [
-    "You are the SUPERVISOR for a parallel multi-agent coding harness. A user has",
-    "given one task. Decide whether it should be done by a SINGLE worker on one",
-    "branch, or split across MULTIPLE workers, each on its own git branch/worktree,",
-    "running in parallel and integrated later via a merge-train.",
-    "",
-    "Split ONLY when the task genuinely decomposes into parts that can progress",
-    "independently. Design the split to MINIMIZE OVERLAP between workers — partition",
-    "by file/module/feature boundaries so two workers rarely touch the same lines",
-    "(overlap manufactures merge conflicts). Put a real dependency in `blockedBy`",
-    "when one part must build on another's output rather than racing it.",
-    "",
-    "Assign each task a `priority` (1 = highest). Priority drives integration",
-    "tradeoffs: higher-priority branches land first, and if a lower-priority branch",
-    "conflicts unresolvably it is dropped rather than blocking the rest. Give the",
-    "core/foundational work the highest priority.",
-    "",
-    "Explore the repository as needed to ground the plan in the real code.",
+    "A user has given you ONE task for a parallel multi-agent coding harness. Decide",
+    "whether it should be done by a SINGLE worker on one branch, or split across",
+    "MULTIPLE workers — each on its own git branch/worktree, running in parallel and",
+    "integrated later via a merge-train.",
     "",
     "The user's task:",
     description,

@@ -61,12 +61,13 @@
     </header>
     <main>
       <section class="panel">
-        <h2>Default system prompts</h2>
+        <h2>System prompts</h2>
         <div class="body" id="prompts">
           <p class="note">
-            Appended to each agent's built-in brief via <code>--append-system-prompt</code> —
-            the harness's own instructions stay intact. Leave blank for no extra prompt.
-            Applies to newly spawned agents (running ones are unaffected).
+            Each role's standing system prompt, applied via <code>--append-system-prompt</code>.
+            Pre-filled with the harness's built-in default — edit to customize, or
+            clear a box to restore the default. Applies to newly spawned agents
+            (running ones are unaffected).
           </p>
         </div>
       </section>
@@ -105,10 +106,11 @@
         negotiator: "resolves merge conflicts during integration (textual + semantic rounds)",
       };
       let roles = [];
+      let defaults = {}; // role -> built-in default system prompt
 
       function fieldHTML(kind, role) {
         const control = kind === "prompts"
-          ? `<textarea rows="5" data-kind="prompts" data-role="${role}" placeholder="extra standing instructions for every ${role} agent…"></textarea>`
+          ? `<textarea rows="6" data-kind="prompts" data-role="${role}" placeholder="(cleared — uses the built-in default for ${role})"></textarea>`
           : `<input type="text" data-kind="models" data-role="${role}" list="model-options" placeholder="CLI default" />`;
         return `<div class="field">
             <label>${role}</label>
@@ -120,12 +122,17 @@
       async function load() {
         try {
           const r = await fetch("/api/config");
-          const { config, roles: rs } = await r.json();
+          const { config, roles: rs, defaults: defs } = await r.json();
           roles = rs || ["worker", "supervisor", "negotiator"];
+          defaults = defs || {};
           $("prompts").insertAdjacentHTML("beforeend", roles.map((x) => fieldHTML("prompts", x)).join(""));
           $("models").insertAdjacentHTML("beforeend", roles.map((x) => fieldHTML("models", x)).join(""));
           document.querySelectorAll("[data-kind]").forEach((el) => {
-            el.value = (config[el.dataset.kind] || {})[el.dataset.role] || "";
+            const saved = (config[el.dataset.kind] || {})[el.dataset.role];
+            // Prompts pre-fill with the saved override, else the built-in default,
+            // so editing starts from what the agent actually gets. Models stay blank
+            // (= CLI default) unless explicitly set.
+            el.value = saved ?? (el.dataset.kind === "prompts" ? (defaults[el.dataset.role] || "") : "");
           });
           $("state").textContent = "config: .harness/config.json";
         } catch (e) {
@@ -137,7 +144,13 @@
         const cfg = { prompts: {}, models: {} };
         document.querySelectorAll("[data-kind]").forEach((el) => {
           const v = el.value.trim();
-          if (v) cfg[el.dataset.kind][el.dataset.role] = v;
+          // For prompts, only persist a genuine override: blank OR matching the
+          // built-in default means "use the default" (don't freeze a copy).
+          if (el.dataset.kind === "prompts") {
+            if (v && v !== (defaults[el.dataset.role] || "").trim()) cfg.prompts[el.dataset.role] = v;
+          } else if (v) {
+            cfg.models[el.dataset.role] = v;
+          }
         });
         const btn = $("save-btn"), msg = $("msg");
         btn.disabled = true; msg.className = "msg"; msg.textContent = "saving…";
@@ -147,9 +160,11 @@
           });
           const j = await r.json();
           if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
-          // Reflect what the server actually kept (it drops malformed model names).
+          // Reflect what the server actually kept (it drops malformed model names
+          // and prompts left at the default); re-show the default for those.
           document.querySelectorAll("[data-kind]").forEach((el) => {
-            el.value = (j.config[el.dataset.kind] || {})[el.dataset.role] || "";
+            const kept = (j.config[el.dataset.kind] || {})[el.dataset.role];
+            el.value = kept ?? (el.dataset.kind === "prompts" ? (defaults[el.dataset.role] || "") : "");
           });
           msg.className = "msg ok"; msg.textContent = "✓ saved — applies to newly spawned agents";
         } catch (e) {

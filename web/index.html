@@ -252,6 +252,12 @@
               <div class="combo-list" id="continue-list" hidden></div>
             </div>
             <input id="spawn-branch" type="text" placeholder="branch name (optional)" />
+            <select id="spawn-model" title="Model for this run's worker(s) — overrides the configured default just this once">
+              <option value="">Model · default</option>
+              <option value="opus">opus</option>
+              <option value="sonnet">sonnet</option>
+              <option value="haiku">haiku</option>
+            </select>
             <button id="spawn-btn">Spawn</button>
             <span id="spawn-msg" class="muted"></span>
           </div>
@@ -722,13 +728,14 @@
         const desc = $("spawn-desc").value.trim();
         const branch = $("spawn-branch").value.trim();
         const mode = $("spawn-mode").value;
+        const model = $("spawn-model").value;
         const continueFrom = continueBranch;
         if (!desc) { $("spawn-msg").textContent = "describe a task first"; return; }
         const btn = $("spawn-btn");
         btn.disabled = true;
         $("spawn-msg").textContent = continueFrom ? "continuing…" : (mode === "single" ? "spawning…" : "supervisor planning…");
         try {
-          await api("/api/spawn", { description: desc, branch, mode, continueFrom });
+          await api("/api/spawn", { description: desc, branch, mode, continueFrom, model });
           $("spawn-msg").textContent = continueFrom
             ? "✓ continuation of " + continueFrom + " started"
             : (mode === "single" ? "✓ worker spawned" : "✓ supervisor planning the fleet…");

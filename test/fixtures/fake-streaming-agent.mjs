@@ -24,6 +24,9 @@ rl.on("line", (line) => {
   writeFileSync(file, text);
   execSync(`git add -A && git commit -m "agent msg ${n}"`, { stdio: "ignore" });
   console.log(`fake-streaming-agent: handled msg ${n}`);
+  // Emit a stream-json turn-completion event so the runner can detect that the
+  // agent has gone idle (this is what drives idle auto-wrap-up).
+  console.log(JSON.stringify({ type: "result", subtype: "success", n }));
 });
 
 rl.on("close", () => process.exit(0));

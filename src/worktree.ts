@@ -8,6 +8,19 @@ export interface WorktreeInfo {
   head?: string;
 }
 
+/**
+ * Thrown by `add` when the target branch already exists AND is held by a live
+ * worktree — i.e. another worker (often a duplicate/concurrent spawn) already
+ * owns it. The caller should bow out WITHOUT recording a failure, so it doesn't
+ * clobber the owning worker's result.
+ */
+export class BranchBusyError extends Error {
+  constructor(public readonly branch: string) {
+    super(`branch ${branch} is already owned by a live worker`);
+    this.name = "BranchBusyError";
+  }
+}
+
 /** Manages git worktrees — cheap per-branch isolation on a single machine. */
 export class WorktreeManager {
   private readonly git: Git;
@@ -25,12 +38,31 @@ export class WorktreeManager {
     return path.join(this.baseDir, safe);
   }
 
-  /** Create a worktree on a NEW branch `branch` based at `baseRef`. */
+  /**
+   * Create a worktree on a NEW branch `branch` based at `baseRef`. If the branch
+   * already exists we don't hard-fail (that's what stranded finished work as
+   * "failed"): a live worktree means another worker owns it → BranchBusyError so
+   * the caller bows out cleanly; otherwise we attach to the existing branch and
+   * continue on top of its commits.
+   */
   async add(branch: string, baseRef: string): Promise<string> {
     await mkdir(this.baseDir, { recursive: true });
     const wt = this.pathFor(branch);
-    await this.git.run(["worktree", "add", "-b", branch, wt, baseRef]);
-    return wt;
+    const created = await this.git.tryRun(["worktree", "add", "-b", branch, wt, baseRef]);
+    if (created.code === 0) return wt;
+
+    const branchExists =
+      (await this.git.tryRun(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])).code === 0;
+    if (!branchExists) {
+      throw new Error(
+        `git worktree add -b ${branch} ${wt} ${baseRef} failed: ${(created.stderr || created.stdout).trim()}`,
+      );
+    }
+    // `worktree add -b` creates branch+worktree atomically, so if the branch now
+    // exists a concurrent winner already has it checked out — detect that.
+    const live = (await this.list()).some((w) => w.branch === branch && w.path !== this.repoRoot);
+    if (live) throw new BranchBusyError(branch);
+    return this.addExisting(branch);
   }
 
   /** Create a worktree that checks out an EXISTING branch (commits stack onto

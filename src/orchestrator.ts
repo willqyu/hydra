@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Git } from "./git.js";
-import { WorktreeManager } from "./worktree.js";
+import { WorktreeManager, BranchBusyError } from "./worktree.js";
 import { Registry } from "./registry.js";
 import { TaskDag } from "./task-dag.js";
 import { CheckpointManager } from "./checkpoint.js";
@@ -119,6 +119,15 @@ export class Orchestrator {
         this.opts.events?.emitEvent({ type: "task:done", taskId: id, branch: node.branch, head });
         this.log(`✔ ${id} -> ${node.branch} @ ${head.slice(0, 8)}`);
       } catch (err: unknown) {
+        // A duplicate/concurrent spawn for a branch another live worker already
+        // owns: bow out WITHOUT touching the registry, so we don't overwrite that
+        // worker's (possibly completed) entry with a spurious failure.
+        if (err instanceof BranchBusyError) {
+          dag.setState(id, "completed"); // not our task to run; let the owner finish it
+          this.log(`• ${id} (${node.branch}): already owned by a live worker — skipping (no clobber)`);
+          worktree = undefined; // don't remove the owner's worktree in finally
+          return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         dag.setState(id, "failed");
         outcomes.set(id, { taskId: id, branch: node.branch, state: "failed", error: msg });

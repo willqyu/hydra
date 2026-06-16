@@ -67,6 +67,33 @@ test("an injected message is delivered to a running agent and committed", async 
   }
 });
 
+test("an interactive agent auto-wraps-up when idle, with no explicit end", async () => {
+  const repo = await initRepo();
+  try {
+    const ctx = await makeContext(repo, "feat/idle");
+    const inbox = new InboxManager(repo);
+    // Steer it once, then send NO `end` — the agent finishes the turn, goes idle,
+    // and the runner must close stdin on its own so the worker reports completed.
+    await inbox.post("feat/idle", { kind: "inject", text: "do-the-thing" });
+
+    const runner = new StreamingClaudeAgentRunner({
+      bin: process.execPath,
+      args: [fakeAgent],
+      formatMessage: textFraming,
+      pollMs: 25,
+      idleGraceMs: 150, // tiny grace so the test doesn't wait the 2-minute default
+    });
+    const result = await runner.run(ctx);
+    assert.equal(result.ok, true, "worker finished on its own after going idle");
+
+    // The steered work landed even though no `end` was ever sent.
+    const grep = await ctx.git.tryRun(["grep", "-l", "do-the-thing", "HEAD"]);
+    assert.equal(grep.code, 0, "steered message was committed before auto-wrap-up");
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
 test("pause buffers injections until resume (delivery order honored)", async () => {
   const repo = await initRepo();
   try {

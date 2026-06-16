@@ -40,12 +40,66 @@ export interface FleetStatusPaths {
   integrationFile?: string;
 }
 
+/** main, else master, else whatever's checked out — the integration trunk. */
+async function resolveTrunk(git: Git): Promise<string> {
+  if ((await git.tryRun(["rev-parse", "--verify", "--quiet", "main"])).code === 0) return "main";
+  if ((await git.tryRun(["rev-parse", "--verify", "--quiet", "master"])).code === 0) return "master";
+  return (await git.tryRun(["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim() || "HEAD";
+}
+
+/**
+ * Repair orphaned `running` registry entries. A live worker always holds its
+ * worktree — the orchestrator creates the worktree BEFORE marking the entry
+ * `running`, and removes it only AFTER marking it terminal — so a `running` entry
+ * with no live worktree means the managing process died mid-run and froze the
+ * entry (the cause of a finished branch never flagging as ready). We resolve it
+ * from git: commits ahead of the trunk => `completed` (the work survived);
+ * otherwise => `failed`. Returns the branches that were repaired.
+ */
+export async function reconcileOrphanedWorkers(
+  repoRoot: string,
+  paths: FleetStatusPaths = {},
+): Promise<string[]> {
+  const dir = path.join(repoRoot, ".harness");
+  const registry = await Registry.open(paths.registryFile ?? path.join(dir, "registry.json"));
+  const running = registry.all().filter((e) => e.state === "running");
+  if (running.length === 0) return [];
+
+  const wtm = new WorktreeManager(repoRoot, paths.worktreeDir ?? path.join(dir, "worktrees"));
+  const liveWorktrees = new Set(
+    (await wtm.list().catch(() => []))
+      .map((w) => w.branch)
+      .filter((b): b is string => !!b),
+  );
+  const git = new Git(repoRoot);
+  const trunk = await resolveTrunk(git);
+
+  const repaired: string[] = [];
+  for (const e of running) {
+    if (liveWorktrees.has(e.branch)) continue; // genuinely running — still holds its worktree
+    const head = (await git.tryRun(["rev-parse", "--verify", "--quiet", e.branch])).stdout.trim();
+    const ahead = head
+      ? (await git.tryRun(["rev-list", "--count", `${trunk}..${e.branch}`])).stdout.trim()
+      : "0";
+    const { updatedAt: _drop, ...rest } = e;
+    if (head && ahead !== "0") {
+      await registry.upsert({ ...rest, state: "completed", head });
+    } else {
+      await registry.upsert({ ...rest, state: "failed", error: "worker ended without completing (orphaned process)" });
+    }
+    repaired.push(e.branch);
+  }
+  return repaired;
+}
+
 /**
  * Aggregates everything the orchestrator persisted under .harness into a single
  * snapshot — the read model behind both `harness status` and the web UI.
  */
 export async function readFleetStatus(repoRoot: string, paths: FleetStatusPaths = {}): Promise<FleetStatus> {
   const dir = path.join(repoRoot, ".harness");
+  // Self-heal frozen `running` entries from crashed runs before reading.
+  await reconcileOrphanedWorkers(repoRoot, paths).catch(() => {});
   const registry = await Registry.open(paths.registryFile ?? path.join(dir, "registry.json"));
   const wtm = new WorktreeManager(repoRoot, paths.worktreeDir ?? path.join(dir, "worktrees"));
   const cpm = new CheckpointManager(paths.checkpointDir ?? path.join(dir, "checkpoints"));
