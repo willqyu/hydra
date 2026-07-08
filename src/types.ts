@@ -22,6 +22,15 @@ export interface TaskSpec {
    * than creating a fresh branch. Used to extend an un-integrated task.
    */
   attachBranch?: boolean;
+  /**
+   * Branch this task's work should ultimately be integrated INTO — the merge-train's
+   * promote target. Distinct from `branch` (this task's own isolated work branch) and
+   * from its worktree: the worker still commits to `branch`, but at integration time
+   * the fleet lands on `targetBranch` instead of main. Absent = the repo trunk
+   * (main/master). All tasks from one spawn session share a target so they land
+   * together. May name a branch that doesn't exist yet (created lazily on integrate).
+   */
+  targetBranch?: string;
 }
 
 export type TaskState = "pending" | "running" | "completed" | "failed";

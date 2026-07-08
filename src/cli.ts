@@ -6,6 +6,7 @@ import { Orchestrator } from "./orchestrator.js";
 import { ClaudeAgentRunner } from "./worker.js";
 import { StreamingClaudeAgentRunner, STREAMING_DEFAULT_ARGS } from "./streaming-worker.js";
 import { loadConfig, roleArgs, type HarnessConfig } from "./config.js";
+import { loadSession } from "./session.js";
 import { InboxManager } from "./inbox.js";
 import { Integrator } from "./integrator.js";
 import { Negotiator } from "./negotiator.js";
@@ -77,6 +78,7 @@ function makeRunner(f: Flags, events: HarnessEvents, cfg: HarnessConfig, modelOv
   return new ClaudeAgentRunner({
     bin: str(f, "agent-bin") || undefined,
     args: [...agentArgs(f), ...worker],
+    events,
     logger: (m) => console.log("  " + m),
   });
 }
@@ -107,6 +109,9 @@ async function cmdRun(f: Flags): Promise<void> {
   if (!file) throw new Error("usage: harness run <tasks.json> [--repo .] [--concurrency N] [--base REF] [--dangerous]");
   const parsed = JSON.parse(await readFile(path.resolve(file), "utf8"));
   const tasks: TaskSpec[] = Array.isArray(parsed) ? parsed : parsed.tasks;
+  // A file-level (or session) target applies to any task that didn't name its own.
+  const target = (Array.isArray(parsed) ? undefined : parsed.targetBranch) || (await loadSession(repo)).targetBranch;
+  if (target) for (const t of tasks) if (!t.targetBranch) t.targetBranch = target;
   await runFleet(repo, tasks, f, { concurrency: parsed.concurrency, baseRef: parsed.baseRef, model: parsed.model });
 }
 
@@ -127,6 +132,7 @@ async function cmdPlan(f: Flags): Promise<void> {
     mode?: "single" | "auto" | "split";
     continueFrom?: string;
     model?: string;
+    targetBranch?: string;
   };
   if (!req.description?.trim()) throw new Error("request.description is required");
 
@@ -172,6 +178,11 @@ async function cmdPlan(f: Flags): Promise<void> {
   }
   // A single-task in-place continuation attaches to the existing branch.
   if (attachBranch && plan.single && plan.tasks[0]) plan.tasks[0].attachBranch = true;
+
+  // Tag every planned task with the integration target so the whole fleet lands on
+  // one branch: an explicit request target wins, else the session's active target.
+  const targetBranch = req.targetBranch?.trim() || (await loadSession(repo)).targetBranch;
+  if (targetBranch) for (const t of plan.tasks) t.targetBranch = targetBranch;
 
   console.log(
     plan.single
@@ -245,7 +256,13 @@ async function cmdIntegrate(f: Flags): Promise<void> {
   // an already-integrated branch is a no-op that can spuriously fail the train and
   // strand genuinely-new branches behind it.
   const git = new Git(repo);
-  const mainBranch = str(f, "main") || (await resolveMain(git));
+  const trunk = await resolveMain(git);
+  // Target branch the fleet lands on: explicit --into/--main flag wins, else the
+  // session's active target (set when the agents were spawned), else the trunk.
+  // `--into` may name a branch that doesn't exist yet — the Integrator forks it
+  // off the trunk. All merge/ancestor checks below run against this target.
+  const session = await loadSession(repo);
+  const mainBranch = str(f, "into") || str(f, "main") || session.targetBranch || trunk;
   const live: string[] = [];
   const dropped: string[] = [];
   for (const b of branches) {
@@ -273,10 +290,14 @@ async function cmdIntegrate(f: Flags): Promise<void> {
     logger: (m) => console.log(m),
   });
 
-  console.log(`integrating: ${branches.join(", ")}`);
+  const targetIsNew = (await git.tryRun(["rev-parse", "--verify", "--quiet", mainBranch])).code !== 0;
+  console.log(
+    `integrating into ${mainBranch}${targetIsNew ? ` (new branch off ${trunk})` : ""}: ${branches.join(", ")}`,
+  );
   const result = await new Integrator({
     repoRoot: repo,
     mainBranch,
+    baseBranch: trunk,
     testCommand,
     negotiator,
     continueOnUnresolved: prioritized,
@@ -284,7 +305,7 @@ async function cmdIntegrate(f: Flags): Promise<void> {
     logger: (m) => console.log(m),
   }).integrate(branches);
 
-  console.log(`\nintegration ${result.promoted ? "PROMOTED to main" : "did NOT promote"}`);
+  console.log(`\nintegration ${result.promoted ? `PROMOTED to ${mainBranch}` : "did NOT promote"}`);
   for (const s of result.steps) console.log(`  ${s.branch}: ${s.status}${s.detail ? " — " + s.detail : ""}`);
   if (result.warning) console.log(`\n⚠ ${result.warning}`);
   if (!result.promoted) process.exitCode = 1;
@@ -337,6 +358,7 @@ function logEvents(): HarnessEvents {
   const ev = new HarnessEvents();
   ev.onEvent((e) => {
     if (e.type === "escalate") console.log(`  ⚠ escalate ${e.branch} (${e.kind}): ${e.detail}`);
+    if (e.type === "agent:offtrack") console.log(`  ⚠ off-track ${e.branch}: ${e.detail}`);
     if (e.type === "negotiate:round") console.log(`  ↻ ${e.tieBreak ? "tie-break" : "round " + e.round} on ${e.branch} (${e.resolver})`);
   });
   return ev;
@@ -361,8 +383,9 @@ async function main(): Promise<void> {
 usage:
   harness run <tasks.json> [--repo .] [--concurrency 4] [--base REF] [--agent-bin claude] [--interactive] [--dangerous]
   harness plan <request.json> [--repo .] [--concurrency 4] [--interactive] [--dangerous]
-       request.json: { "description", "branch"?, "mode"? (single|auto|split), "continueFrom"? }
-  harness integrate [--branches a,b] [--prioritized] [--test "npm test"] [--main main] [--max-rounds 3] [--repo .] [--dangerous]
+       request.json: { "description", "branch"?, "mode"? (single|auto|split), "continueFrom"?, "targetBranch"? }
+  harness integrate [--branches a,b] [--prioritized] [--test "npm test"] [--into BRANCH] [--max-rounds 3] [--repo .] [--dangerous]
+       --into: branch to merge the fleet into (created off the trunk if new); default = session target, else main/master
   harness status [--repo .] [--json]
   harness serve [--repo .] [--port 4317]
   harness inject --branch <b> --text "message"     # steer one running agent (interactive mode)

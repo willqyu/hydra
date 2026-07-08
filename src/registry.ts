@@ -14,6 +14,9 @@ export interface RegistryEntry {
   checkpoint?: string;
   /** Integration priority (1 = highest); set when a supervisor planned a fleet. */
   priority?: number;
+  /** Branch this task should be integrated into (default trunk). Set when the task
+   *  was spawned with an active session target; drives the Integrate default. */
+  targetBranch?: string;
   updatedAt: string;
 }
 

@@ -12,6 +12,7 @@ import { InboxManager, type InboxKind } from "./inbox.js";
 import { Registry } from "./registry.js";
 import { CheckpointManager } from "./checkpoint.js";
 import { loadConfig, saveConfig, sanitizeModel, CONFIG_ROLES, DEFAULT_PROMPTS } from "./config.js";
+import { loadSession, saveSession, sanitizeTarget } from "./session.js";
 import { WorktreeManager } from "./worktree.js";
 import { Git } from "./git.js";
 
@@ -111,10 +112,17 @@ export function startServer(opts: ServerOptions): http.Server {
           return send(res, 409, "application/json", '{"error":"integration already running"}');
         }
         const body = await readBody(req);
-        const { test, maxRounds } = JSON.parse(body || "{}");
+        const { test, maxRounds, into } = JSON.parse(body || "{}");
         const args = ["integrate", "--repo", opts.repoRoot, "--dangerous", "--prioritized"];
         if (test && String(test).trim()) args.push("--test", String(test).trim());
         if (maxRounds) args.push("--max-rounds", String(parseInt(String(maxRounds), 10) || 3));
+        // Target branch to land the fleet on. An explicit choice here also becomes
+        // the session's sticky target; absent it, `integrate` falls back to it itself.
+        const target = sanitizeTarget(into);
+        if (target) {
+          args.push("--into", target);
+          await saveSession(opts.repoRoot, { targetBranch: target });
+        }
         integrating = true;
         const child = spawnHarness(opts.repoRoot, args, "integrate.log", false);
         child.on("exit", () => { integrating = false; });
@@ -125,10 +133,15 @@ export function startServer(opts: ServerOptions): http.Server {
 
       if (req.method === "POST" && url.pathname === "/api/spawn") {
         const body = await readBody(req);
-        const { description, branch, mode, continueFrom, model } = JSON.parse(body || "{}");
+        const { description, branch, mode, continueFrom, model, targetBranch } = JSON.parse(body || "{}");
         if (!description || !String(description).trim()) {
           return send(res, 400, "application/json", '{"error":"description required"}');
         }
+        // Integration target for this session. When the spawn names one, it becomes
+        // the sticky session target (autoselected for later spawns + Integrate); when
+        // it doesn't, the existing session target still applies to these agents.
+        if (targetBranch !== undefined) await saveSession(opts.repoRoot, { targetBranch: sanitizeTarget(targetBranch) });
+        const session = await loadSession(opts.repoRoot);
         // Hand off to `harness plan`: the supervisor decides single-vs-fleet and,
         // when continuing, seeds the prior branch's context + forks from its head.
         const request = {
@@ -138,11 +151,13 @@ export function startServer(opts: ServerOptions): http.Server {
           continueFrom: continueFrom ? sanitizeBranch(continueFrom) : undefined,
           // Per-run worker model override (a model picked in the Spawn panel).
           model: sanitizeModel(model) || undefined,
+          // The branch this session's agents integrate into (default trunk).
+          targetBranch: session.targetBranch,
         };
         const reqFile = path.join(os.tmpdir(), `harness-plan-${Date.now().toString(36)}.json`);
         await writeFile(reqFile, JSON.stringify(request, null, 2));
         spawnHarness(opts.repoRoot, ["plan", reqFile, "--repo", opts.repoRoot, "--dangerous"], "spawn.log", true);
-        log(`plan spawned (mode=${request.mode}${request.continueFrom ? `, continue ${request.continueFrom}` : ""}${request.model ? `, model ${request.model}` : ""})`);
+        log(`plan spawned (mode=${request.mode}${request.continueFrom ? `, continue ${request.continueFrom}` : ""}${request.model ? `, model ${request.model}` : ""}${request.targetBranch ? `, into ${request.targetBranch}` : ""})`);
         return send(res, 200, "application/json", JSON.stringify({ ok: true, planning: true }));
       }
 
@@ -258,6 +273,30 @@ export function startServer(opts: ServerOptions): http.Server {
         return send(res, 200, "application/json", JSON.stringify({ ok: true, config: cfg }));
       }
 
+      if (req.method === "POST" && url.pathname === "/api/session") {
+        const body = await readBody(req);
+        let raw: { targetBranch?: unknown } = {};
+        try { raw = JSON.parse(body || "{}"); } catch {
+          return send(res, 400, "application/json", '{"error":"invalid JSON"}');
+        }
+        const saved = await saveSession(opts.repoRoot, { targetBranch: sanitizeTarget(raw.targetBranch) });
+        log(`session target → ${saved.targetBranch ?? "(trunk)"}`);
+        return send(res, 200, "application/json", JSON.stringify({ ok: true, targetBranch: saved.targetBranch ?? null }));
+      }
+
+      if (url.pathname === "/api/session") {
+        // Powers the Spawn/Integrate target pickers: the active sticky target, the
+        // repo trunk it falls back to, and every local branch to offer as a choice.
+        const git = new Git(opts.repoRoot);
+        const [session, trunk, refs] = await Promise.all([
+          loadSession(opts.repoRoot),
+          resolveMain(git),
+          git.tryRun(["for-each-ref", "--format=%(refname:short)", "refs/heads"]),
+        ]);
+        const branches = refs.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+        return send(res, 200, "application/json", JSON.stringify({ targetBranch: session.targetBranch ?? null, trunk, branches }));
+      }
+
       if (url.pathname === "/api/config") {
         const cfg = await loadConfig(opts.repoRoot);
         // `defaults` lets the Settings page pre-fill each prompt box with the
@@ -371,6 +410,17 @@ export function startServer(opts: ServerOptions): http.Server {
       if (url.pathname === "/hydra" || url.pathname === "/hydra.html") {
         const html = await readFile(path.join(WEB_DIR, "hydra.html"), "utf8");
         return send(res, 200, "text/html; charset=utf-8", html);
+      }
+      if (url.pathname === "/demo" || url.pathname === "/demo.html") {
+        // The demo IS the real dashboard, served with a client-side simulator
+        // injected ahead of its script: the sim overrides fetch() so every real
+        // render path + the hydra run against a fabricated, self-driving fleet.
+        const [html, sim] = await Promise.all([
+          readFile(path.join(WEB_DIR, "index.html"), "utf8"),
+          readFile(path.join(WEB_DIR, "demo-sim.js"), "utf8"),
+        ]);
+        const injected = html.replace("</head>", `<script>\n${sim}\n</script>\n</head>`);
+        return send(res, 200, "text/html; charset=utf-8", injected);
       }
       if (url.pathname === "/settings" || url.pathname === "/settings.html") {
         const html = await readFile(path.join(WEB_DIR, "settings.html"), "utf8");

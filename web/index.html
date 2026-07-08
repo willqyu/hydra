@@ -209,6 +209,10 @@
       .action-bar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
       .action-bar button:disabled { opacity: 0.5; cursor: default; }
       #integrate-btn.go { border-color: var(--ok); color: var(--ok); }
+      /* Integration-target pickers (Spawn + Integrate) — the branch a session lands on. */
+      .action-bar input.target-field { flex: 0 1 210px; min-width: 150px; }
+      .action-bar input.target-field.set { border-color: var(--accent); color: var(--accent); }
+      .action-bar button.mini { padding: 6px 10px; }
       .spawn { padding: 12px 16px; display: grid; gap: 10px; }
       .spawn textarea { width: 100%; resize: vertical; line-height: 1.5; }
       .rec {
@@ -223,8 +227,25 @@
         display: block; width: 100%; aspect-ratio: 680 / 440; border: 0;
         background: #0d0a1a; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
       }
-      .hydra-hint { padding: 10px 16px 14px; margin: 0; font-size: 11px; color: var(--muted); line-height: 1.7; }
-      .hydra-hint code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 10px; }
+      /* "?" help badge + hover/focus tooltip (e.g. the Fleet hydra legend). */
+      .help {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 15px; height: 15px; border-radius: 50%; align-self: center;
+        border: 1px solid var(--border); color: var(--muted);
+        font-size: 10px; font-weight: 600; cursor: help; position: relative;
+      }
+      .help:hover, .help:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+      .help-tip {
+        position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+        width: 280px; padding: 10px 12px; font-size: 11px; font-weight: 400;
+        line-height: 1.7; text-align: left; color: var(--muted);
+        background: var(--panel); border: 1px solid var(--border);
+        box-shadow: 0 12px 32px rgba(1,4,9,.6);
+        opacity: 0; visibility: hidden; transition: opacity .12s; pointer-events: none;
+      }
+      .help:hover .help-tip, .help:focus .help-tip { opacity: 1; visibility: visible; }
+      .help-tip code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 10px; }
+      .help-tip b { color: var(--fg); }
     </style>
   </head>
   <body>
@@ -232,6 +253,7 @@
       <h1>⛓ harness</h1>
       <a class="navlink" href="/branches">branch log →</a>
       <a class="navlink" href="/settings">settings →</a>
+      <a class="navlink" href="/demo">hydra demo →</a>
       <span class="repo" id="repo">—</span>
       <span class="dot" id="updated">connecting…</span>
     </header>
@@ -258,9 +280,14 @@
               <option value="sonnet">sonnet</option>
               <option value="haiku">haiku</option>
             </select>
+            <input id="spawn-target" class="target-field" list="branch-list" type="text" autocomplete="off"
+                   placeholder="into… (blank = main)"
+                   title="Integration target — the branch this session's agents land on when you Integrate. Sticky: it applies to every spawn until you change it. Blank = main/master. Pick an existing branch or type a new name to create it on integrate." />
+            <button id="spawn-target-gen" type="button" class="mini" title="Generate a fresh integration branch name">＋ new</button>
             <button id="spawn-btn">Spawn</button>
             <span id="spawn-msg" class="muted"></span>
           </div>
+          <datalist id="branch-list"></datalist>
         </div>
       </section>
 
@@ -282,16 +309,20 @@
 
       <aside class="col-side">
         <section class="panel hydra-panel">
-          <h2>Fleet hydra <span id="hydra-cap" class="muted"></span></h2>
+          <h2>Fleet hydra <span id="hydra-cap" class="muted"></span>
+            <span class="help" tabindex="0" role="button" aria-label="Fleet hydra legend">?<span class="help-tip">One head per worker · vibe tracks fleet state — <code>sleepy</code> idle · <code>busy</code> working · <code>disco</code> integrating · <code>panic</code> failure/escalation · <code>chill</code> all done. Heads <b>tangle</b> together while their branches are mid-negotiation.</span></span>
+          </h2>
           <iframe id="hydra-frame" class="hydra-frame" src="/hydra.html?embed=1" title="Fleet hydra" loading="lazy"></iframe>
-          <p class="hint hydra-hint">One head per worker · vibe tracks fleet state — <code>sleepy</code> idle · <code>busy</code> working · <code>disco</code> integrating · <code>panic</code> failure/escalation · <code>chill</code> all done. Heads <b>tangle</b> together while their branches are mid-negotiation.</p>
         </section>
 
         <section class="panel">
-          <h2>Integration → main</h2>
+          <h2>Integration → <span id="integrate-target-label">main</span></h2>
           <div id="integrate-rec"></div>
           <div class="action-bar">
             <input id="integrate-test" type="text" placeholder="test gate (optional), e.g. cd frontend && npx tsc -b" />
+            <input id="integrate-target" class="target-field" list="branch-list" type="text" autocomplete="off"
+                   placeholder="target (blank = main)"
+                   title="Branch to merge the completed branches into — created off the trunk if it's new. Blank = main/master." />
             <button id="integrate-btn">Integrate completed branches</button>
             <span id="integrate-msg" class="muted"></span>
           </div>
@@ -709,13 +740,55 @@
         return j;
       }
 
+      // ---- Integration target: a sticky, session-wide branch the fleet lands on.
+      // Loaded from /api/session and kept in sync across the Spawn + Integrate
+      // pickers. Distinct from each worker's own isolated branch/worktree. ----
+      let sessionTarget = "";
+      async function loadSessionTarget() {
+        let s = {};
+        try { s = await (await fetch("/api/session")).json(); } catch (e) { return; }
+        sessionTarget = s.targetBranch || "";
+        const trunk = s.trunk || "main";
+        // Offer every local branch as a datalist suggestion for both pickers.
+        $("branch-list").innerHTML = (s.branches || []).map((b) => `<option value="${esc(b)}"></option>`).join("");
+        // Reflect the active target into both fields (don't stomp one being typed).
+        for (const id of ["spawn-target", "integrate-target"]) {
+          const el = $(id);
+          if (!el) continue;
+          if (document.activeElement !== el) el.value = sessionTarget;
+          el.classList.toggle("set", !!sessionTarget);
+        }
+        $("spawn-target").placeholder = `into… (blank = ${trunk})`;
+        $("integrate-target").placeholder = `target (blank = ${trunk})`;
+        $("integrate-target-label").textContent = sessionTarget || trunk;
+      }
+      async function setSessionTarget(branch) {
+        try { const j = await api("/api/session", { targetBranch: branch }); sessionTarget = j.targetBranch || ""; }
+        catch (e) {}
+        loadSessionTarget();
+      }
+      // Persist a picked/typed target so it sticks across spawns and the Integrate panel.
+      $("spawn-target").addEventListener("change", () => setSessionTarget($("spawn-target").value.trim()));
+      $("integrate-target").addEventListener("change", () => setSessionTarget($("integrate-target").value.trim()));
+      $("spawn-target-gen").addEventListener("click", () => {
+        const d = new Date(), pad = (n) => String(n).padStart(2, "0");
+        const name = `integration/${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+        $("spawn-target").value = name;
+        setSessionTarget(name);
+        $("spawn-msg").textContent = `target set → ${name}`;
+      });
+
       $("integrate-btn").addEventListener("click", async () => {
         const btn = $("integrate-btn");
         const test = $("integrate-test").value.trim();
+        const into = $("integrate-target").value.trim();
         btn.disabled = true; $("integrate-msg").textContent = "starting…";
         try {
-          await api("/api/integrate", { test });
-          $("integrate-msg").textContent = "integration started — watch the panel below.";
+          await api("/api/integrate", { test, into });
+          $("integrate-msg").textContent = into
+            ? `integration into ${into} started — watch the panel below.`
+            : "integration started — watch the panel below.";
+          loadSessionTarget();
         } catch (e) {
           $("integrate-msg").textContent = "✗ " + e.message;
         } finally {
@@ -729,18 +802,21 @@
         const branch = $("spawn-branch").value.trim();
         const mode = $("spawn-mode").value;
         const model = $("spawn-model").value;
+        const targetBranch = $("spawn-target").value.trim();
         const continueFrom = continueBranch;
         if (!desc) { $("spawn-msg").textContent = "describe a task first"; return; }
         const btn = $("spawn-btn");
         btn.disabled = true;
         $("spawn-msg").textContent = continueFrom ? "continuing…" : (mode === "single" ? "spawning…" : "supervisor planning…");
         try {
-          await api("/api/spawn", { description: desc, branch, mode, continueFrom, model });
-          $("spawn-msg").textContent = continueFrom
+          await api("/api/spawn", { description: desc, branch, mode, continueFrom, model, targetBranch });
+          $("spawn-msg").textContent = (continueFrom
             ? "✓ continuation of " + continueFrom + " started"
-            : (mode === "single" ? "✓ worker spawned" : "✓ supervisor planning the fleet…");
+            : (mode === "single" ? "✓ worker spawned" : "✓ supervisor planning the fleet…"))
+            + (targetBranch ? ` → ${targetBranch}` : "");
           $("spawn-desc").value = ""; $("spawn-branch").value = "";
           setContinue("");
+          loadSessionTarget();
         } catch (e) {
           $("spawn-msg").textContent = "✗ " + e.message;
         } finally {
@@ -822,7 +898,7 @@
           .map((st) => st.branch));
         const pending = completed.filter((w) => !w.merged && !done.has(w.branch));
         if (allTerminal && pending.length > 0) {
-          rec.innerHTML = `<div class="rec">▲ <b>${pending.length}</b> branch${pending.length !== 1 ? "es" : ""} finished and ready to integrate into main — ${pending.map((w) => esc(w.branch)).join(", ")}</div>`;
+          rec.innerHTML = `<div class="rec">▲ <b>${pending.length}</b> branch${pending.length !== 1 ? "es" : ""} finished and ready to integrate into ${esc(sessionTarget || "main")} — ${pending.map((w) => esc(w.branch)).join(", ")}</div>`;
           btn.classList.add("go");
         } else {
           rec.innerHTML = "";
@@ -1151,6 +1227,9 @@
       setInterval(tick, 2000);
       tickAgents();
       setInterval(tickAgents, 2000);
+      loadSessionTarget();
+      // Refresh the branch list + active target periodically so new branches appear.
+      setInterval(loadSessionTarget, 10000);
     </script>
   </body>
 </html>

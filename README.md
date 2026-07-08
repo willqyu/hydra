@@ -5,8 +5,6 @@ its own branch in an isolated git worktree, then integrates their branches into
 `main` with **test-verified** conflict resolution and human escalation only when
 needed.
 
-Design rationale and roadmap: `~/.claude/plans/realistically-we-can-just-merry-newt.md`.
-
 ## Status
 
 End-to-end (M1–M5) plus a CLI, a Claude Code skill, and a live dashboard.
@@ -116,7 +114,8 @@ agent up. This is the file-based substrate peerd uses, scoped to a single agent.
 
 ```bash
 # symlink (or copy) the skill into your Claude Code skills dir
-ln -s /home/will/harness/skills/orchestrate ~/.claude/skills/orchestrate
+# (run from the repo root, or replace "$PWD" with the path to your clone)
+ln -s "$PWD/skills/orchestrate" ~/.claude/skills/orchestrate
 ```
 
 Then ask Claude to "orchestrate" / "parallelize across branches".

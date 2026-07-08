@@ -129,10 +129,20 @@ export async function readFleetStatus(repoRoot: string, paths: FleetStatusPaths 
     if (s.count > 0) inbox[w.branch] = s;
     // Only running agents are still emitting transcript; skip the stat otherwise.
     const lastActivityAt = w.state === "running" ? await latestActivityAt(repoRoot, w.branch) : null;
-    // Whether this branch has already landed in main (Extend is then disabled).
-    const merged = w.head
-      ? (await git.tryRun(["merge-base", "--is-ancestor", w.head, mainBranch])).code === 0
-      : false;
+    // Whether this branch's work has already landed — in its integration TARGET
+    // branch (a session may aim at a non-main branch) OR the trunk. Checking only
+    // the trunk left non-main integrations looking un-merged, so their hydra heads
+    // never despawned and the "ready to integrate" prompt never cleared. A target
+    // that doesn't exist yet simply fails the ancestor check (still un-merged).
+    const landingRefs = w.targetBranch && w.targetBranch !== mainBranch
+      ? [w.targetBranch, mainBranch]
+      : [mainBranch];
+    let merged = false;
+    if (w.head) {
+      for (const ref of landingRefs) {
+        if ((await git.tryRun(["merge-base", "--is-ancestor", w.head, ref])).code === 0) { merged = true; break; }
+      }
+    }
     workers.push({ ...w, ...(lastActivityAt ? { lastActivityAt } : {}), merged });
   }
 

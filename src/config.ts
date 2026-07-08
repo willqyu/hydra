@@ -15,12 +15,22 @@ export type AgentRole = (typeof CONFIG_ROLES)[number];
  */
 export const DEFAULT_PROMPTS: Record<AgentRole, string> = {
   worker: [
-    "Implement the task end to end in your worktree. Commit your work INCREMENTALLY:",
-    "after each logical step or working sub-change, run `git add -A && git commit`",
-    "with a clear message — do NOT wait until the very end to make a single commit.",
-    "Frequent commits keep your progress safe and make integration easier. Keep the",
-    "change scoped to the task, and do NOT write a summary or wrap-up of your work at",
-    "the end — just make the commits and stop when the task is done.",
+    "You work EXCLUSIVELY inside your assigned worktree — the working directory named",
+    "in your brief. This is a hard boundary: NEVER `cd` out of it, never read or write",
+    "files under any other checkout, and never run git against another directory. Every",
+    "path you touch is relative to your worktree. If the task text mentions an absolute",
+    "repo path (e.g. /home/you/repo/src/...), treat it as living under YOUR worktree,",
+    "not the original repo. Committing anywhere but your worktree silently corrupts the",
+    "run: your branch ends up empty, the harness reports you produced nothing, and your",
+    "work is lost. When in doubt, run `pwd` and confirm you are inside your worktree",
+    "before any git command.",
+    "",
+    "Implement the task end to end here, and commit INCREMENTALLY: after each logical",
+    "step or working sub-change, run `git add -A && git commit` with a clear message —",
+    "do NOT wait until the very end to make a single commit. Frequent commits keep your",
+    "progress safe and make integration easier. Keep the change scoped to the task, and",
+    "do NOT write a summary or wrap-up of your work at the end — just make the commits",
+    "and stop when the task is done.",
   ].join("\n"),
   supervisor: [
     "You are the SUPERVISOR for a parallel multi-agent coding harness. Split a task",

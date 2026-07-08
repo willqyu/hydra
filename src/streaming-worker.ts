@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { defaultClaudeBin, shouldUseShell } from "./claude.js";
 import { InboxManager } from "./inbox.js";
 import { HarnessEvents } from "./events.js";
+import { WorktreeMonitor, sanityCheckResult } from "./worktree-guard.js";
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
 export interface StreamingClaudeAgentRunnerOptions {
@@ -83,6 +84,20 @@ export class StreamingClaudeAgentRunner implements WorkerRunner {
     const inbox = new InboxManager(ctx.repoRoot);
 
     const before = await ctx.git.head();
+
+    // Watch that the agent stays inside its worktree: each Bash tool call in the
+    // stream is checked for an escaping `cd`, the periodic timer reports where it's
+    // working, and a post-run check catches commits that landed on the primary
+    // checkout instead of this branch.
+    const monitor = new WorktreeMonitor({
+      worktree: ctx.worktree,
+      repoRoot: ctx.repoRoot,
+      branch: ctx.branch,
+      events,
+      logger: log,
+    });
+    await monitor.start();
+
     const child: ChildProcessWithoutNullStreams = spawn(bin, args, {
       cwd: ctx.worktree,
       shell: shouldUseShell(bin, this.opts.shell),
@@ -115,6 +130,7 @@ export class StreamingClaudeAgentRunner implements WorkerRunner {
         const line = lineBuf.slice(0, nl).trim();
         lineBuf = lineBuf.slice(nl + 1);
         if (!line) continue;
+        monitor.observeStreamLine(line); // flag any tool call run outside the worktree
         try {
           if ((JSON.parse(line) as { type?: string }).type === "result") sawResult = true;
         } catch {
@@ -190,6 +206,7 @@ export class StreamingClaudeAgentRunner implements WorkerRunner {
     clearInterval(timer);
     clearTimeout(killTimer);
     await poll().catch(() => {}); // final drain for observability
+    const { stray, primaryBranch } = await monitor.finalize();
 
     if (code !== 0) {
       return { ok: false, error: `agent exited ${code}: ${stderr.slice(0, 500)}` };
@@ -204,8 +221,7 @@ export class StreamingClaudeAgentRunner implements WorkerRunner {
     }
 
     const head = await ctx.git.head();
-    if (head === before) return { ok: false, error: "agent produced no commits" };
-    return { ok: true, head, context: truncate(stdout) };
+    return sanityCheckResult({ branch: ctx.branch, before, head, stray, primaryBranch, context: truncate(stdout) });
   }
 }
 

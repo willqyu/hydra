@@ -12,7 +12,11 @@ export type HarnessEvent =
   | { type: "escalate"; branch: string; kind: "textual" | "semantic"; detail: string }
   | { type: "agent:inject"; branch: string; text: string }
   | { type: "agent:pause"; branch: string }
-  | { type: "agent:resume"; branch: string };
+  | { type: "agent:resume"; branch: string }
+  // A worker appears to be operating OUTSIDE its assigned worktree (e.g. it `cd`ed
+  // to another checkout, or commits showed up on the repo's primary branch while it
+  // ran). `cwd` is the offending directory when known.
+  | { type: "agent:offtrack"; branch: string; cwd?: string; detail: string };
 
 /** Thin typed wrapper over EventEmitter — `onEvent` for everything, plus per-type. */
 export class HarnessEvents extends EventEmitter {

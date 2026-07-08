@@ -86,7 +86,7 @@ export class Orchestrator {
         worktree = node.attachBranch
           ? await wtm.addExisting(node.branch) // continue the existing branch in place
           : await wtm.add(node.branch, baseRef);
-        await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "running", priority: node.priority });
+        await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "running", priority: node.priority, targetBranch: node.targetBranch });
         const ctx: WorkerContext = {
           taskId: id,
           branch: node.branch,
@@ -115,6 +115,7 @@ export class Orchestrator {
           head,
           checkpoint,
           priority: node.priority,
+          targetBranch: node.targetBranch,
         });
         this.opts.events?.emitEvent({ type: "task:done", taskId: id, branch: node.branch, head });
         this.log(`✔ ${id} -> ${node.branch} @ ${head.slice(0, 8)}`);
@@ -131,7 +132,7 @@ export class Orchestrator {
         const msg = err instanceof Error ? err.message : String(err);
         dag.setState(id, "failed");
         outcomes.set(id, { taskId: id, branch: node.branch, state: "failed", error: msg });
-        await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "failed", error: msg, priority: node.priority });
+        await registry.upsert({ taskId: id, branch: node.branch, worktree, state: "failed", error: msg, priority: node.priority, targetBranch: node.targetBranch });
         this.opts.events?.emitEvent({ type: "task:fail", taskId: id, branch: node.branch, error: msg });
         this.log(`✘ ${id} (${node.branch}): ${msg}`);
       } finally {

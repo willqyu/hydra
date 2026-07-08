@@ -63,6 +63,47 @@ test("non-conflicting branches land on main through the merge train", async () =
   }
 });
 
+test("integrates into a NEW target branch, forked off the trunk, leaving main untouched", async () => {
+  const repo = await initRepo();
+  try {
+    const runner = new ScriptWorkerRunner({
+      a: commitFile("a.txt", "from A\n", "task a"),
+      b: commitFile("b.txt", "from B\n", "task b"),
+    });
+    await new Orchestrator({ repoRoot: repo, runner, concurrency: 2 }).run([
+      { id: "a", branch: "feat/a", description: "A", targetBranch: "release/1" },
+      { id: "b", branch: "feat/b", description: "B", targetBranch: "release/1" },
+    ]);
+
+    const git = new Git(repo);
+    const mainBefore = await git.revParse("main");
+    assert.equal(await git.branchExists("release/1"), false); // created lazily on integrate
+
+    // Land the fleet on a brand-new branch, forked off main.
+    const result = await new Integrator({
+      repoRoot: repo,
+      mainBranch: "release/1",
+      baseBranch: "main",
+    }).integrate(["feat/a", "feat/b"]);
+
+    assert.equal(result.promoted, true);
+    assert.equal(await git.branchExists("release/1"), true);
+    // The work is on the target...
+    assert.equal(await git.run(["show", "release/1:a.txt"]), "from A");
+    assert.equal(await git.run(["show", "release/1:b.txt"]), "from B");
+    // ...and main was left exactly where it was.
+    assert.equal(await git.revParse("main"), mainBefore);
+
+    // The registry recorded the target for each task.
+    const { Registry } = await import("../src/registry.js");
+    const reg = await Registry.open(path.join(repo, ".harness", "registry.json"));
+    assert.equal(reg.get("feat/a")?.targetBranch, "release/1");
+    assert.equal(reg.get("feat/b")?.targetBranch, "release/1");
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
 test("re-integrating an already-landed branch is skipped, not aborted", async () => {
   // Regression: a second integrate pass that still lists an already-merged branch
   // must skip it (no-op) and still land the genuinely-new branch — previously the

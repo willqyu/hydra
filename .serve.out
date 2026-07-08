@@ -1,0 +1,5 @@
+
+> harness@0.1.0 harness
+> node --import tsx src/cli.ts serve --repo /home/will/Cube --port 4317
+
+harness dashboard → http://127.0.0.1:4317  (repo: /home/will/Cube)

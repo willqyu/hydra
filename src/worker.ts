@@ -1,4 +1,6 @@
 import { runClaude } from "./claude.js";
+import { WorktreeMonitor, sanityCheckResult } from "./worktree-guard.js";
+import type { HarnessEvents } from "./events.js";
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
 /** A worker may return distilled context to be saved in its checkpoint. */
@@ -46,6 +48,8 @@ export interface ClaudeAgentRunnerOptions {
   env?: NodeJS.ProcessEnv;
   /** Spawn through a shell (needed if `bin` is a shell builtin/alias). Default false. */
   shell?: boolean;
+  /** Fleet event bus — used to surface worktree-containment warnings. */
+  events?: HarnessEvents;
   logger?: (m: string) => void;
 }
 
@@ -77,6 +81,19 @@ export class ClaudeAgentRunner implements WorkerRunner {
 
     const before = await ctx.git.head();
 
+    // Watch that the agent stays inside its worktree: periodic check-ins on where
+    // it's working, plus a post-run check for commits that escaped onto the repo's
+    // primary checkout (a headless `-p` run gives no live stream, so the periodic
+    // timer reads the agent's transcript on disk).
+    const monitor = new WorktreeMonitor({
+      worktree: ctx.worktree,
+      repoRoot: ctx.repoRoot,
+      branch: ctx.branch,
+      events: this.opts.events,
+      logger: log,
+    });
+    await monitor.start();
+
     const proc = await runClaude({
       cwd: ctx.worktree,
       prompt,
@@ -86,6 +103,7 @@ export class ClaudeAgentRunner implements WorkerRunner {
       env: this.opts.env,
       shell: this.opts.shell,
     });
+    const { stray, primaryBranch } = await monitor.finalize();
     if (proc.code !== 0) {
       return { ok: false, error: `agent exited ${proc.code}: ${proc.stderr.slice(0, 500)}` };
     }
@@ -100,10 +118,7 @@ export class ClaudeAgentRunner implements WorkerRunner {
     }
 
     const head = await ctx.git.head();
-    if (head === before) {
-      return { ok: false, error: "agent produced no commits" };
-    }
-    return { ok: true, head, context: truncate(proc.stdout) };
+    return sanityCheckResult({ branch: ctx.branch, before, head, stray, primaryBranch, context: truncate(proc.stdout) });
   }
 }
 

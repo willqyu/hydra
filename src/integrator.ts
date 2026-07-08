@@ -48,8 +48,14 @@ export interface Negotiator {
 
 export interface IntegratorOptions {
   repoRoot: string;
-  /** Branch we ultimately promote to. Default "main". */
+  /** Branch we ultimately promote to. Default "main". May be a branch that does
+   *  not exist yet — it is created off `baseBranch` before the train runs (this is
+   *  how "integrate into a NEW branch" works). */
   mainBranch?: string;
+  /** Trunk to fork `mainBranch` from when it doesn't exist yet. Default: whatever
+   *  `mainBranch` is (i.e. assume it already exists). Callers that support new
+   *  targets pass the real trunk (main/master) here. */
+  baseBranch?: string;
   /** Staging branch where branches are assembled + tested. Default "integration/staging". */
   integrationBranch?: string;
   /** Command run in the integration worktree after each merge. Empty => skip gate. */
@@ -144,7 +150,15 @@ export class Integrator {
     const wtPath = this.wtm.pathFor(this.integ);
     this.opts.events?.emitEvent({ type: "integrate:start", branches });
 
-    // Fresh staging branch at main, in its own worktree.
+    // Ensure the promote target exists. When integrating into a NEW branch, fork
+    // it off the trunk now (lazy creation) so staging + promotion have a base.
+    if (!(await this.git.branchExists(this.main))) {
+      const base = this.opts.baseBranch || "HEAD";
+      await this.git.run(["branch", this.main, base]);
+      this.log(`＋ created target branch ${this.main} at ${base}`);
+    }
+
+    // Fresh staging branch at the target, in its own worktree.
     await this.wtm.remove(this.integ, { force: true }).catch(() => {});
     await this.git.run(["branch", "-f", this.integ, this.main]);
     await this.git.run(["worktree", "add", wtPath, this.integ]);
