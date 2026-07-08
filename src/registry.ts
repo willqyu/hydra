@@ -35,6 +35,14 @@ export class Registry {
    *  clobber a concurrent writer's — or a manual repair's — change to a branch it
    *  merely loaded but never touched. */
   private readonly dirty = new Set<string>();
+  /** Serializes flushes. Two concurrent upserts on the same instance (the
+   *  orchestrator shares ONE Registry across all its workers) used to interleave
+   *  at the read/write awaits: the first flush cleared `dirty` and the second then
+   *  read stale disk with nothing left to re-apply, occasionally clobbering the
+   *  file with an empty/partial list and making workers vanish from the dashboard.
+   *  Chaining every flush onto the previous one makes each read-modify-write
+   *  atomic with respect to the others. */
+  private flushChain: Promise<void> = Promise.resolve();
 
   private constructor(private readonly file: string) {}
 
@@ -78,7 +86,15 @@ export class Registry {
     return had;
   }
 
-  private async flush(): Promise<void> {
+  /** Enqueue a flush behind any in-flight one, so reads/writes never interleave.
+   *  A failed write doesn't wedge the chain for later flushes. */
+  private flush(): Promise<void> {
+    const next = this.flushChain.then(() => this.doFlush(), () => this.doFlush());
+    this.flushChain = next.catch(() => {});
+    return next;
+  }
+
+  private async doFlush(): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true });
     // Start from CURRENT disk state so concurrent writers' changes survive, then
     // impose ONLY what this instance actually changed: dirty entries override,

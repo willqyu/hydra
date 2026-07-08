@@ -34,6 +34,34 @@ test("a long-lived reader does not revert a concurrent write to a branch it neve
   }
 });
 
+test("concurrent upserts on one shared instance never lose an entry", async () => {
+  // Regression: the orchestrator shares ONE Registry across all workers, which
+  // upsert concurrently as they start. A flush race could clear `dirty` and then
+  // write stale disk, dropping entries — so branches vanished from the dashboard.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-reg-"));
+  const file = path.join(dir, "registry.json");
+  try {
+    const reg = await Registry.open(file);
+    const N = 40;
+    // Fire all upserts without awaiting between them — maximally interleaved.
+    await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        reg.upsert({ taskId: `t${i}`, branch: `feat/b${i}`, state: "running" }),
+      ),
+    );
+
+    // Every branch must be present both in memory and on disk.
+    assert.equal(reg.all().length, N, "no entry dropped in memory");
+    const onDisk = await Registry.open(file);
+    assert.equal(onDisk.all().length, N, "no entry dropped on disk");
+    for (let i = 0; i < N; i++) {
+      assert.equal(onDisk.get(`feat/b${i}`)?.state, "running", `feat/b${i} survived`);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("remove tombstones a branch even against a stale concurrent reader", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "harness-reg-"));
   const file = path.join(dir, "registry.json");
