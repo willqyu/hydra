@@ -3,6 +3,8 @@ import { defaultClaudeBin, shouldUseShell } from "./claude.js";
 import { InboxManager } from "./inbox.js";
 import { HydraEvents } from "./events.js";
 import { WorktreeMonitor, sanityCheckResult } from "./worktree-guard.js";
+import { stageSessionForCwd } from "./transcript.js";
+import { resumeArgs } from "./resume.js";
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
 export interface StreamingClaudeAgentRunnerOptions {
@@ -13,6 +15,11 @@ export interface StreamingClaudeAgentRunnerOptions {
    */
   args?: string[];
   buildPrompt?: (ctx: WorkerContext) => string;
+  /** Seed every worker by resuming (and forking) this prior Claude session id,
+   *  so it inherits that conversation's context. See ClaudeAgentRunnerOptions. */
+  resumeSessionId?: string;
+  /** Fork the resumed session instead of continuing it in place. Default true. */
+  forkSession?: boolean;
   /** Turn an inbox text message into a stdin line for the agent. Default emits a
    *  Claude stream-json user message. Override to match a different protocol. */
   formatMessage?: (text: string) => string;
@@ -76,12 +83,23 @@ export class StreamingClaudeAgentRunner implements WorkerRunner {
 
   async run(ctx: WorkerContext): Promise<WorkerResult> {
     const bin = this.opts.bin ?? defaultClaudeBin();
-    const args = this.opts.args ?? STREAMING_DEFAULT_ARGS;
+    let args = this.opts.args ?? STREAMING_DEFAULT_ARGS;
     const format = this.opts.formatMessage ?? defaultFormat;
     const prompt = (this.opts.buildPrompt ?? defaultPrompt)(ctx);
     const events = this.opts.events;
     const log = this.opts.logger ?? (() => {});
     const inbox = new InboxManager(ctx.repoRoot);
+
+    // Optionally fork a prior conversation into this worker (see ClaudeAgentRunner).
+    if (this.opts.resumeSessionId) {
+      const staged = await stageSessionForCwd(ctx.repoRoot, this.opts.resumeSessionId, ctx.worktree);
+      if (staged) {
+        args = [...args, ...resumeArgs(this.opts.resumeSessionId, this.opts.forkSession ?? true)];
+        log(`forking session ${this.opts.resumeSessionId} for ${ctx.branch}`);
+      } else {
+        log(`session ${this.opts.resumeSessionId} not found — running ${ctx.branch} without it`);
+      }
+    }
 
     const before = await ctx.git.head();
 

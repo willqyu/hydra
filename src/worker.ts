@@ -1,5 +1,7 @@
 import { runClaude } from "./claude.js";
 import { WorktreeMonitor, sanityCheckResult } from "./worktree-guard.js";
+import { stageSessionForCwd } from "./transcript.js";
+import { resumeArgs } from "./resume.js";
 import type { HydraEvents } from "./events.js";
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
@@ -41,6 +43,14 @@ export interface ClaudeAgentRunnerOptions {
   args?: string[];
   /** Builds the prompt from the task context. Default: a standard worker brief. */
   buildPrompt?: (ctx: WorkerContext) => string;
+  /**
+   * Seed every worker by resuming this prior Claude session id (from
+   * `hydra sessions` / the picker), so it inherits that conversation's context.
+   * Each worker forks it (`--fork-session`) into its own new session.
+   */
+  resumeSessionId?: string;
+  /** Fork the resumed session instead of continuing it in place. Default true. */
+  forkSession?: boolean;
   /** Commit any changes the agent left uncommitted. Default true. */
   autoCommit?: boolean;
   /** Kill the agent after this many ms. Default 30 minutes. */
@@ -79,6 +89,20 @@ export class ClaudeAgentRunner implements WorkerRunner {
     const prompt = (this.opts.buildPrompt ?? defaultPrompt)(ctx);
     const log = this.opts.logger ?? (() => {});
 
+    // Optionally fork a prior conversation into this worker so it starts with
+    // that context. Stage the transcript into the worktree's project dir first
+    // so `claude --resume` finds it from the worktree cwd.
+    let args = this.opts.args;
+    if (this.opts.resumeSessionId) {
+      const staged = await stageSessionForCwd(ctx.repoRoot, this.opts.resumeSessionId, ctx.worktree);
+      if (staged) {
+        args = [...(this.opts.args ?? []), ...resumeArgs(this.opts.resumeSessionId, this.opts.forkSession ?? true)];
+        log(`forking session ${this.opts.resumeSessionId} for ${ctx.branch}`);
+      } else {
+        log(`session ${this.opts.resumeSessionId} not found — running ${ctx.branch} without it`);
+      }
+    }
+
     const before = await ctx.git.head();
 
     // Watch that the agent stays inside its worktree: periodic check-ins on where
@@ -98,7 +122,7 @@ export class ClaudeAgentRunner implements WorkerRunner {
       cwd: ctx.worktree,
       prompt,
       bin: this.opts.bin,
-      args: this.opts.args,
+      args,
       timeoutMs: this.opts.timeoutMs,
       env: this.opts.env,
       shell: this.opts.shell,

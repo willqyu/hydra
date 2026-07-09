@@ -1,4 +1,4 @@
-import { readFile, readdir, stat, open } from "node:fs/promises";
+import { readFile, readdir, stat, open, copyFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -345,4 +345,118 @@ export async function readSessionLog(repoRoot: string, id: string, offset = 0): 
     return { offset, events: [], found: false };
   }
   return readFromFile(file, offset);
+}
+
+// ---------------------------------------------------------------------------
+// Session forking: seed a worker from one of the user's prior conversations.
+//
+// The user's interactive Claude sessions for a repo live in that repo's
+// project dir (~/.claude/projects/<encoded-repo>). `listRepoSessions` powers a
+// "resume"-style picker; `stageSessionForCwd` copies a chosen session's
+// transcript into a worktree's project dir so `claude --resume <id>` finds it
+// when spawned there — after which `--fork-session` gives each worker its own
+// divergent copy of that shared context.
+// ---------------------------------------------------------------------------
+
+export interface RepoSession {
+  /** Session id (transcript filename without .jsonl) — pass to `--from-session`. */
+  sessionId: string;
+  /** First user prompt, clipped — a human-readable label for the picker. */
+  title: string;
+  startedAt?: string;
+  /** Transcript mtime — proxy for last activity. */
+  lastActivityAt: string;
+}
+
+/**
+ * List the user's own prior conversations for this repo (the repo-root project
+ * dir), most-recently-active first. Excludes hydra's own planner/naming agent
+ * sessions so the picker shows only human-driven chats worth forking from.
+ */
+export async function listRepoSessions(
+  repoRoot: string,
+  projectsRoot: string = PROJECTS_ROOT,
+): Promise<RepoSession[]> {
+  const dir = path.join(projectsRoot, encodeProjectDir(repoRoot));
+  let files: string[];
+  try {
+    files = (await readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+  } catch {
+    return [];
+  }
+  const out: RepoSession[] = [];
+  for (const f of files) {
+    const full = path.join(dir, f);
+    let m: number;
+    try {
+      m = (await stat(full)).mtimeMs;
+    } catch {
+      continue;
+    }
+    const meta = await readSessionMeta(full);
+    if (!meta.title || isPlannerTitle(meta.title)) continue;
+    out.push({
+      sessionId: f.slice(0, -".jsonl".length),
+      title: meta.title,
+      startedAt: meta.startedAt,
+      lastActivityAt: new Date(m).toISOString(),
+    });
+  }
+  out.sort((a, b) => (a.lastActivityAt < b.lastActivityAt ? 1 : a.lastActivityAt > b.lastActivityAt ? -1 : 0));
+  return out;
+}
+
+/** Locate a session's transcript file by id: prefer the repo-root project dir,
+ *  then fall back to scanning every project dir. Returns the full path or null. */
+export async function findSessionFile(
+  repoRoot: string,
+  sessionId: string,
+  projectsRoot: string = PROJECTS_ROOT,
+): Promise<string | null> {
+  const preferred = path.join(projectsRoot, encodeProjectDir(repoRoot), `${sessionId}.jsonl`);
+  try {
+    await stat(preferred);
+    return preferred;
+  } catch {
+    /* not in the repo-root dir — scan the rest */
+  }
+  let dirs: string[];
+  try {
+    dirs = await readdir(projectsRoot);
+  } catch {
+    return null;
+  }
+  for (const d of dirs) {
+    const cand = path.join(projectsRoot, d, `${sessionId}.jsonl`);
+    try {
+      await stat(cand);
+      return cand;
+    } catch {
+      /* keep looking */
+    }
+  }
+  return null;
+}
+
+/**
+ * Copy a session's transcript into the project dir Claude will use for `cwd`, so
+ * a worker spawned there with `--resume <sessionId>` can find and fork it. No-op
+ * (returns true) if it's already present; returns false if the source is
+ * missing. This is what makes forking a repo-root conversation work from inside
+ * an isolated worktree, whose cwd maps to a different project dir.
+ */
+export async function stageSessionForCwd(
+  repoRoot: string,
+  sessionId: string,
+  cwd: string,
+  projectsRoot: string = PROJECTS_ROOT,
+): Promise<boolean> {
+  const src = await findSessionFile(repoRoot, sessionId, projectsRoot);
+  if (!src) return false;
+  const destDir = path.join(projectsRoot, encodeProjectDir(cwd));
+  const dest = path.join(destDir, `${sessionId}.jsonl`);
+  if (path.resolve(src) === path.resolve(dest)) return true; // already the right dir
+  await mkdir(destDir, { recursive: true });
+  await copyFile(src, dest);
+  return true;
 }
