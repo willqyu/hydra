@@ -17,6 +17,7 @@ import { CheckpointManager } from "./checkpoint.js";
 import { superviseTask, singleFallback, nameBranch, type SupervisorPlan } from "./supervisor.js";
 import { readFleetStatus, reconcileOrphanedWorkers } from "./status.js";
 import { startServer } from "./server.js";
+import { listRepoSessions } from "./transcript.js";
 import type { TaskSpec } from "./types.js";
 
 interface Flags {
@@ -65,11 +66,15 @@ function agentArgs(f: Flags): string[] {
 function makeRunner(f: Flags, events: HydraEvents, cfg: HydraConfig, modelOverride?: string) {
   // A per-run model (picked in the Spawn panel / `--model`) wins over config.
   const worker = roleArgs(cfg, "worker", modelOverride || str(f, "model") || undefined);
+  // Optionally seed every worker from a prior conversation (`--from-session <id>`).
+  const resumeSessionId = str(f, "from-session") || undefined;
+  if (resumeSessionId) console.log(`forking prior session ${resumeSessionId} into each worker`);
   if (f.interactive) {
     console.log("interactive mode — steer agents via `hydra inject` or the dashboard");
     return new StreamingClaudeAgentRunner({
       bin: str(f, "agent-bin") || undefined,
       args: [...STREAMING_DEFAULT_ARGS, ...worker],
+      resumeSessionId,
       events,
       ...(typeof f["idle-grace-ms"] === "string" ? { idleGraceMs: num(f, "idle-grace-ms", 120000) } : {}),
       logger: (m) => console.log("  " + m),
@@ -78,6 +83,7 @@ function makeRunner(f: Flags, events: HydraEvents, cfg: HydraConfig, modelOverri
   return new ClaudeAgentRunner({
     bin: str(f, "agent-bin") || undefined,
     args: [...agentArgs(f), ...worker],
+    resumeSessionId,
     events,
     logger: (m) => console.log("  " + m),
   });
@@ -364,6 +370,27 @@ function logEvents(): HydraEvents {
   return ev;
 }
 
+/** List the user's prior conversations for this repo, so one can be picked to
+ *  seed a fleet with `hydra run … --from-session <id>`. */
+async function cmdSessions(f: Flags): Promise<void> {
+  const repo = path.resolve(str(f, "repo", process.cwd()));
+  const sessions = await listRepoSessions(repo);
+  if (f.json) {
+    console.log(JSON.stringify(sessions, null, 2));
+    return;
+  }
+  if (!sessions.length) {
+    console.log("no prior conversations found for this repo.");
+    return;
+  }
+  console.log(`prior conversations for ${repo} (newest first):\n`);
+  for (const s of sessions) {
+    const when = s.lastActivityAt.slice(0, 16).replace("T", " ");
+    console.log(`  ${s.sessionId}  ${when}  ${s.title.replace(/\s+/g, " ").slice(0, 70)}`);
+  }
+  console.log(`\nseed a fleet from one:  hydra run <tasks.json> --repo ${repo} --from-session <id>`);
+}
+
 async function main(): Promise<void> {
   const f = parseArgs(process.argv.slice(2));
   const cmd = (f._ as string[])[0];
@@ -372,6 +399,7 @@ async function main(): Promise<void> {
     case "plan": return cmdPlan(f);
     case "integrate": return cmdIntegrate(f);
     case "status": return cmdStatus(f);
+    case "sessions": return cmdSessions(f);
     case "serve": return cmdServe(f);
     case "inject": return cmdInject(f);
     case "pause": return cmdControl("pause", f);
@@ -381,11 +409,13 @@ async function main(): Promise<void> {
       console.log(`hydra — parallel multi-agent branch orchestration
 
 usage:
-  hydra run <tasks.json> [--repo .] [--concurrency 4] [--base REF] [--agent-bin claude] [--interactive] [--dangerous]
-  hydra plan <request.json> [--repo .] [--concurrency 4] [--interactive] [--dangerous]
+  hydra run <tasks.json> [--repo .] [--concurrency 4] [--base REF] [--agent-bin claude] [--interactive] [--dangerous] [--from-session <id>]
+       --from-session: fork a prior conversation (see 'hydra sessions') into every worker so it starts with that context
+  hydra plan <request.json> [--repo .] [--concurrency 4] [--interactive] [--dangerous] [--from-session <id>]
        request.json: { "description", "branch"?, "mode"? (single|auto|split), "continueFrom"?, "targetBranch"? }
   hydra integrate [--branches a,b] [--prioritized] [--test "npm test"] [--into BRANCH] [--max-rounds 3] [--repo .] [--dangerous]
        --into: branch to merge the fleet into (created off the trunk if new); default = session target, else main/master
+  hydra sessions [--repo .] [--json]              # list prior conversations to fork from (--from-session)
   hydra status [--repo .] [--json]
   hydra serve [--repo .] [--port 4317]
   hydra inject --branch <b> --text "message"     # steer one running agent (interactive mode)
