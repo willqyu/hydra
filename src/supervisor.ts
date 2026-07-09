@@ -37,7 +37,7 @@ function slug(s: string, n = 28): string {
 // output contract the parser depends on.
 function planPrompt(description: string): string {
   return [
-    "A user has given you ONE task for a parallel multi-agent coding harness. Decide",
+    "A user has given you ONE task for a parallel multi-agent coding hydra. Decide",
     "whether it should be done by a SINGLE worker on one branch, or split across",
     "MULTIPLE workers — each on its own git branch/worktree, running in parallel and",
     "integrated later via a merge-train.",

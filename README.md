@@ -1,4 +1,4 @@
-# harness — parallel multi-agent branch orchestration
+# hydra — parallel multi-agent branch orchestration
 
 A single orchestrator ("Main Agent") fans out N worker agents, each developing
 its own branch in an isolated git worktree, then integrates their branches into
@@ -60,22 +60,22 @@ inside each worktree (use it in place of `ScriptWorkerRunner`).
 ## CLI
 
 ```bash
-npm run harness -- run tasks.json --repo <target> --concurrency 3 [--interactive] [--dangerous]
-npm run harness -- integrate --repo <target> --test "npm test" --max-rounds 3
-npm run harness -- status --repo <target> [--json]
-npm run harness -- serve  --repo <target> --port 4317   # dashboard
+npm run hydra -- run tasks.json --repo <target> --concurrency 3 [--interactive] [--dangerous]
+npm run hydra -- integrate --repo <target> --test "npm test" --max-rounds 3
+npm run hydra -- status --repo <target> [--json]
+npm run hydra -- serve  --repo <target> --port 4317   # dashboard
 # steer a single running agent (interactive mode):
-npm run harness -- inject --repo <target> --branch feat/x --text "focus on error handling"
-npm run harness -- pause|resume|end --repo <target> --branch feat/x
+npm run hydra -- inject --repo <target> --branch feat/x --text "focus on error handling"
+npm run hydra -- pause|resume|end --repo <target> --branch feat/x
 ```
 
 `tasks.json`: `{ "concurrency": 3, "tasks": [ { "id", "branch", "description", "blockedBy"? } ] }`
-(see `examples/tasks.example.json`). After `npm run build`, the `harness` bin
+(see `examples/tasks.example.json`). After `npm run build`, the `hydra` bin
 (`dist/cli.js`) is also available.
 
 ## Dashboard
 
-`harness serve` starts a dependency-free web UI (default
+`hydra serve` starts a dependency-free web UI (default
 http://127.0.0.1:4317) that polls `/api/status` every 2s and shows workers,
 worktrees, checkpoints, and integration status. In **interactive mode** each
 running worker gets a steer box — type a message to one agent (or Pause/Resume
@@ -102,8 +102,8 @@ it via `window.hydra` (`setTangle([i,…])`) or the postMessage bridge;
 
 By default workers are one-shot (`ClaudeAgentRunner`). With `run --interactive`
 they use `StreamingClaudeAgentRunner`: a long-lived agent whose stdin stays open.
-Each worker has a per-branch **inbox** (`.harness/inbox/<branch>.jsonl`); the
-dashboard, the `harness inject/pause/resume/end` commands, and the orchestrator
+Each worker has a per-branch **inbox** (`.hydra/inbox/<branch>.jsonl`); the
+dashboard, the `hydra inject/pause/resume/end` commands, and the orchestrator
 all post to it, and the runner forwards messages to that one agent mid-run.
 `pause` buffers injections, `resume` flushes them, `end` closes stdin to wrap the
 agent up. This is the file-based substrate peerd uses, scoped to a single agent.
@@ -126,5 +126,5 @@ Then ask Claude to "orchestrate" / "parallelize across branches".
 npm install
 npm run typecheck
 npm test
-npm run build      # emit dist/ (and the harness bin)
+npm run build      # emit dist/ (and the hydra bin)
 ```

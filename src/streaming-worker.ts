@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { defaultClaudeBin, shouldUseShell } from "./claude.js";
 import { InboxManager } from "./inbox.js";
-import { HarnessEvents } from "./events.js";
+import { HydraEvents } from "./events.js";
 import { WorktreeMonitor, sanityCheckResult } from "./worktree-guard.js";
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
@@ -34,7 +34,7 @@ export interface StreamingClaudeAgentRunnerOptions {
   idleGraceMs?: number;
   env?: NodeJS.ProcessEnv;
   shell?: boolean;
-  events?: HarnessEvents;
+  events?: HydraEvents;
   logger?: (m: string) => void;
 }
 
@@ -195,7 +195,7 @@ export class StreamingClaudeAgentRunner implements WorkerRunner {
 
     const timer = setInterval(() => void poll().catch(() => {}), this.opts.pollMs ?? 500);
     const killTimer = setTimeout(() => {
-      stderr += "\n[harness] agent timed out";
+      stderr += "\n[hydra] agent timed out";
       child.kill("SIGKILL");
     }, this.opts.timeoutMs ?? 30 * 60 * 1000);
 

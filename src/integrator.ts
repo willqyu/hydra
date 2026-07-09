@@ -4,7 +4,7 @@ import { Git } from "./git.js";
 import { MergeTool } from "./merge.js";
 import { WorktreeManager } from "./worktree.js";
 import { execShell } from "./exec.js";
-import { HarnessEvents } from "./events.js";
+import { HydraEvents } from "./events.js";
 
 /** Result of asking a negotiator to resolve a conflict. */
 export interface ConflictResolution {
@@ -72,9 +72,9 @@ export interface IntegratorOptions {
    */
   continueOnUnresolved?: boolean;
   /** Emits integrate:* / escalate events for the live UI. */
-  events?: HarnessEvents;
+  events?: HydraEvents;
   /** Where to persist the latest integration result. Default
-   *  <repoRoot>/.harness/integration.json. Pass null to disable. */
+   *  <repoRoot>/.hydra/integration.json. Pass null to disable. */
   stateFile?: string | null;
   logger?: (m: string) => void;
 }
@@ -131,7 +131,7 @@ export class Integrator {
     this.integ = opts.integrationBranch ?? "integration/staging";
     this.wtm = new WorktreeManager(
       opts.repoRoot,
-      opts.worktreeDir ?? path.join(opts.repoRoot, ".harness", "worktrees"),
+      opts.worktreeDir ?? path.join(opts.repoRoot, ".hydra", "worktrees"),
     );
   }
 
@@ -287,7 +287,7 @@ export class Integrator {
       // Fast-forward the live branch in place: advances the ref AND updates
       // files+index. Git refuses (rather than clobbers) if uncommitted work
       // would be overwritten, and ignores non-colliding untracked files
-      // (e.g. our own .harness/), so this is the safe sync mechanism.
+      // (e.g. our own .hydra/), so this is the safe sync mechanism.
       await new Git(mainWt).run(["merge", "--ff-only", head]);
       return {};
     } catch (err) {
@@ -336,7 +336,7 @@ export class Integrator {
    */
   private async writeState(result: IntegrationResult): Promise<void> {
     if (this.opts.stateFile === null) return;
-    const file = this.opts.stateFile ?? path.join(this.opts.repoRoot, ".harness", "integration.json");
+    const file = this.opts.stateFile ?? path.join(this.opts.repoRoot, ".hydra", "integration.json");
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, JSON.stringify({ ...result, updatedAt: new Date().toISOString() }, null, 2), "utf8");
   }

@@ -1,10 +1,10 @@
 {
-  "name": "harness",
+  "name": "hydra",
   "version": "0.1.0",
   "description": "Parallel multi-agent branch orchestration — orchestrator fans out N worker agents on isolated worktrees and integrates their branches into main with test-verified conflict resolution.",
   "type": "module",
   "bin": {
-    "harness": "dist/cli.js"
+    "hydra": "dist/cli.js"
   },
   "engines": {
     "node": ">=18"
@@ -13,7 +13,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "harness": "node --import tsx src/cli.ts",
+    "hydra": "node --import tsx src/cli.ts",
     "serve": "node --import tsx src/cli.ts serve"
   },
   "devDependencies": {

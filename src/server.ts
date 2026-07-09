@@ -33,24 +33,24 @@ export interface ServerOptions {
 const here = path.dirname(fileURLToPath(import.meta.url));
 // web/ sits next to src/ in the repo, and next to dist/ when built.
 const WEB_DIR = path.resolve(here, "..", "web");
-// Harness package root — cwd for re-spawned CLI commands so the tsx loader
-// (passed via this process's execArgv) resolves from harness node_modules.
-const HARNESS_ROOT = path.resolve(here, "..");
+// Hydra package root — cwd for re-spawned CLI commands so the tsx loader
+// (passed via this process's execArgv) resolves from hydra node_modules.
+const HYDRA_ROOT = path.resolve(here, "..");
 
-/** Spawn another harness CLI command the same way this process was launched
+/** Spawn another hydra CLI command the same way this process was launched
  *  (reusing node + its --import flags + the cli entrypoint). */
-function spawnHarness(
+function spawnHydra(
   repoRoot: string,
   args: string[],
   logName: string,
   detached: boolean,
 ): ChildProcess {
-  const harnessDir = path.join(repoRoot, ".harness");
-  mkdirSync(harnessDir, { recursive: true });
-  const fd = openSync(path.join(harnessDir, logName), "a");
+  const hydraDir = path.join(repoRoot, ".hydra");
+  mkdirSync(hydraDir, { recursive: true });
+  const fd = openSync(path.join(hydraDir, logName), "a");
   const cliPath = process.argv[1] ?? "";
   const options: SpawnOptions = {
-    cwd: HARNESS_ROOT,
+    cwd: HYDRA_ROOT,
     detached,
     stdio: ["ignore", fd, fd],
     env: process.env,
@@ -73,7 +73,7 @@ let integrating = false;
 
 /**
  * Dependency-free dashboard: serves a single static page plus a JSON status API
- * the page polls. Read-only over the orchestrator's .harness state.
+ * the page polls. Read-only over the orchestrator's .hydra state.
  */
 export function startServer(opts: ServerOptions): http.Server {
   const port = opts.port ?? 4317;
@@ -124,7 +124,7 @@ export function startServer(opts: ServerOptions): http.Server {
           await saveSession(opts.repoRoot, { targetBranch: target });
         }
         integrating = true;
-        const child = spawnHarness(opts.repoRoot, args, "integrate.log", false);
+        const child = spawnHydra(opts.repoRoot, args, "integrate.log", false);
         child.on("exit", () => { integrating = false; });
         child.on("error", () => { integrating = false; });
         log(`integrate started${test ? ` (test: ${String(test).slice(0, 40)})` : " (textual-only)"}`);
@@ -142,7 +142,7 @@ export function startServer(opts: ServerOptions): http.Server {
         // it doesn't, the existing session target still applies to these agents.
         if (targetBranch !== undefined) await saveSession(opts.repoRoot, { targetBranch: sanitizeTarget(targetBranch) });
         const session = await loadSession(opts.repoRoot);
-        // Hand off to `harness plan`: the supervisor decides single-vs-fleet and,
+        // Hand off to `hydra plan`: the supervisor decides single-vs-fleet and,
         // when continuing, seeds the prior branch's context + forks from its head.
         const request = {
           description: String(description),
@@ -154,9 +154,9 @@ export function startServer(opts: ServerOptions): http.Server {
           // The branch this session's agents integrate into (default trunk).
           targetBranch: session.targetBranch,
         };
-        const reqFile = path.join(os.tmpdir(), `harness-plan-${Date.now().toString(36)}.json`);
+        const reqFile = path.join(os.tmpdir(), `hydra-plan-${Date.now().toString(36)}.json`);
         await writeFile(reqFile, JSON.stringify(request, null, 2));
-        spawnHarness(opts.repoRoot, ["plan", reqFile, "--repo", opts.repoRoot, "--dangerous"], "spawn.log", true);
+        spawnHydra(opts.repoRoot, ["plan", reqFile, "--repo", opts.repoRoot, "--dangerous"], "spawn.log", true);
         log(`plan spawned (mode=${request.mode}${request.continueFrom ? `, continue ${request.continueFrom}` : ""}${request.model ? `, model ${request.model}` : ""}${request.targetBranch ? `, into ${request.targetBranch}` : ""})`);
         return send(res, 200, "application/json", JSON.stringify({ ok: true, planning: true }));
       }
@@ -168,7 +168,7 @@ export function startServer(opts: ServerOptions): http.Server {
         if (!b || !text || !String(text).trim()) {
           return send(res, 400, "application/json", '{"error":"branch and text required"}');
         }
-        const reg = await Registry.open(path.join(opts.repoRoot, ".harness", "registry.json"));
+        const reg = await Registry.open(path.join(opts.repoRoot, ".hydra", "registry.json"));
         const entry = reg.all().find((e) => e.branch === b);
         // Too late to extend once the branch has landed in main.
         const git = new Git(opts.repoRoot);
@@ -195,9 +195,9 @@ export function startServer(opts: ServerOptions): http.Server {
         }
         // Terminal but un-integrated: continue it with a seeded follow-up worker.
         const request = { description: String(text), continueFrom: b, mode: "single" };
-        const reqFile = path.join(os.tmpdir(), `harness-plan-${Date.now().toString(36)}.json`);
+        const reqFile = path.join(os.tmpdir(), `hydra-plan-${Date.now().toString(36)}.json`);
         await writeFile(reqFile, JSON.stringify(request, null, 2));
-        spawnHarness(opts.repoRoot, ["plan", reqFile, "--repo", opts.repoRoot, "--dangerous"], "spawn.log", true);
+        spawnHydra(opts.repoRoot, ["plan", reqFile, "--repo", opts.repoRoot, "--dangerous"], "spawn.log", true);
         log(`extend → ${b}: spawned continuation`);
         return send(res, 200, "application/json", JSON.stringify({ ok: true, mode: "continued" }));
       }
@@ -230,7 +230,7 @@ export function startServer(opts: ServerOptions): http.Server {
         if (b === mainBranch) {
           return send(res, 400, "application/json", '{"error":"refusing to delete the trunk branch"}');
         }
-        const reg = await Registry.open(path.join(opts.repoRoot, ".harness", "registry.json"));
+        const reg = await Registry.open(path.join(opts.repoRoot, ".hydra", "registry.json"));
         const entry = reg.all().find((e) => e.branch === b);
         if (entry?.state === "running") {
           return send(res, 409, "application/json", '{"error":"a worker is still running on this branch — let it finish first"}');
@@ -240,21 +240,21 @@ export function startServer(opts: ServerOptions): http.Server {
           return send(res, 409, "application/json", '{"error":"branch is checked out in the working tree — switch to main first"}');
         }
         // Remove its worktree (if any), delete the branch, then clean up state.
-        await new WorktreeManager(opts.repoRoot, path.join(opts.repoRoot, ".harness", "worktrees"))
+        await new WorktreeManager(opts.repoRoot, path.join(opts.repoRoot, ".hydra", "worktrees"))
           .remove(b, { force: true }).catch(() => {});
         const del = await git.tryRun(["branch", "-D", b]);
         if (del.code !== 0) {
           return send(res, 409, "application/json", JSON.stringify({ error: del.stderr.trim() || `could not delete ${b}` }));
         }
         await reg.remove(b);
-        await new CheckpointManager(path.join(opts.repoRoot, ".harness", "checkpoints")).remove(b);
+        await new CheckpointManager(path.join(opts.repoRoot, ".hydra", "checkpoints")).remove(b);
         log(`deleted branch ${b}`);
         return send(res, 200, "application/json", JSON.stringify({ ok: true, branch: b }));
       }
 
       if (req.method === "POST" && url.pathname === "/api/stash") {
         const git = new Git(opts.repoRoot);
-        const r = await git.tryRun(["stash", "push", "-u", "-m", "harness dashboard"]);
+        const r = await git.tryRun(["stash", "push", "-u", "-m", "hydra dashboard"]);
         if (r.code !== 0) {
           return send(res, 409, "application/json", JSON.stringify({ error: r.stderr.trim() || "stash failed" }));
         }
@@ -306,11 +306,11 @@ export function startServer(opts: ServerOptions): http.Server {
 
       if (url.pathname === "/api/tasks") {
         // Searchable task catalogue for the "continue from" picker: every branch
-        // the harness knows (registry + checkpoints), matched against BOTH the
+        // the hydra knows (registry + checkpoints), matched against BOTH the
         // branch name and the task's initial prompt (the checkpoint description).
         const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
-        const reg = await Registry.open(path.join(opts.repoRoot, ".harness", "registry.json"));
-        const cps = await new CheckpointManager(path.join(opts.repoRoot, ".harness", "checkpoints")).list();
+        const reg = await Registry.open(path.join(opts.repoRoot, ".hydra", "registry.json"));
+        const cps = await new CheckpointManager(path.join(opts.repoRoot, ".hydra", "checkpoints")).list();
         const cpByBranch = new Map(cps.map((c) => [c.branch, c]));
         const seen = new Set<string>();
         const tasks: Array<{ branch: string; taskId: string; state: string; description: string; updatedAt: string }> = [];
@@ -433,7 +433,7 @@ export function startServer(opts: ServerOptions): http.Server {
   });
 
   server.listen(port, host, () => {
-    log(`harness dashboard → http://${host}:${port}  (repo: ${opts.repoRoot})`);
+    log(`hydra dashboard → http://${host}:${port}  (repo: ${opts.repoRoot})`);
   });
   return server;
 }

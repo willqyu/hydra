@@ -11,7 +11,7 @@ export interface BranchCommit {
 }
 
 /**
- * A full historical record of one branch the harness developed — its
+ * A full historical record of one branch the hydra developed — its
  * orchestration state, the brief it was given, the agent's distilled summary,
  * and the actual commits it produced (those diverging from main).
  */
@@ -37,11 +37,11 @@ const UNIT_SEP = "\x1f";
 /**
  * Build the full branch log: every branch the orchestrator scheduled (registry)
  * unioned with every branch that has a durable checkpoint, enriched with the
- * commits each branch developed relative to main. Read-only over .harness +
+ * commits each branch developed relative to main. Read-only over .hydra +
  * git; the order is most-recently-updated first.
  */
 export async function readBranchLog(repoRoot: string): Promise<BranchLogEntry[]> {
-  const dir = path.join(repoRoot, ".harness");
+  const dir = path.join(repoRoot, ".hydra");
   const registry = await Registry.open(path.join(dir, "registry.json"));
   const cpm = new CheckpointManager(path.join(dir, "checkpoints"));
   const checkpoints = await cpm.list();

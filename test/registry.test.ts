@@ -6,7 +6,7 @@ import path from "node:path";
 import { Registry } from "../src/registry.js";
 
 test("a long-lived reader does not revert a concurrent write to a branch it never touched", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-reg-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-reg-"));
   const file = path.join(dir, "registry.json");
   try {
     // Seed: branch X is "failed".
@@ -38,7 +38,7 @@ test("concurrent upserts on one shared instance never lose an entry", async () =
   // Regression: the orchestrator shares ONE Registry across all workers, which
   // upsert concurrently as they start. A flush race could clear `dirty` and then
   // write stale disk, dropping entries — so branches vanished from the dashboard.
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-reg-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-reg-"));
   const file = path.join(dir, "registry.json");
   try {
     const reg = await Registry.open(file);
@@ -63,7 +63,7 @@ test("concurrent upserts on one shared instance never lose an entry", async () =
 });
 
 test("remove tombstones a branch even against a stale concurrent reader", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-reg-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-reg-"));
   const file = path.join(dir, "registry.json");
   try {
     const seed = await Registry.open(file);

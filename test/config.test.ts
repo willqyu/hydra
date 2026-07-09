@@ -36,8 +36,8 @@ test("sanitizeModel accepts aliases/ids and rejects flag-like names", () => {
   assert.equal(sanitizeModel(123), "");
 });
 
-test("saveConfig/loadConfig roundtrip through .harness/config.json", async () => {
-  const repo = await mkdtemp(path.join(os.tmpdir(), "harness-config-"));
+test("saveConfig/loadConfig roundtrip through .hydra/config.json", async () => {
+  const repo = await mkdtemp(path.join(os.tmpdir(), "hydra-config-"));
   try {
     assert.deepEqual(await loadConfig(repo), { prompts: {}, models: {} }); // no file yet
     await saveConfig(repo, { prompts: { negotiator: "prefer ours" }, models: { supervisor: "opus" } });

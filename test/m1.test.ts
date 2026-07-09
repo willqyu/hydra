@@ -10,11 +10,11 @@ import { WorktreeManager } from "../src/worktree.js";
 
 /** Create a throwaway git repo with one commit on `main`. */
 async function initRepo(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-m1-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-m1-"));
   const git = new Git(dir);
   await git.run(["init", "-b", "main"]);
   await git.run(["config", "user.email", "test@example.com"]);
-  await git.run(["config", "user.name", "Harness Test"]);
+  await git.run(["config", "user.name", "Hydra Test"]);
   await writeFile(path.join(dir, "README.md"), "# base\n");
   await git.run(["add", "."]);
   await git.run(["commit", "-m", "init"]);
@@ -54,14 +54,14 @@ test("fans out two independent tasks to separate branches", async () => {
     assert.equal(await git.lastSubject("feat/b"), "task b");
 
     // Worktrees cleaned up: only the main worktree remains.
-    const wtm = new WorktreeManager(repo, path.join(repo, ".harness", "worktrees"));
+    const wtm = new WorktreeManager(repo, path.join(repo, ".hydra", "worktrees"));
     const worktrees = await wtm.list();
     assert.equal(worktrees.length, 1, "task worktrees removed, only main remains");
 
     // Registry recorded both as completed with head commits.
     const reg = JSON.parse(
       await (await import("node:fs/promises")).readFile(
-        path.join(repo, ".harness", "registry.json"),
+        path.join(repo, ".hydra", "registry.json"),
         "utf8",
       ),
     ) as Array<{ branch: string; state: string; head?: string }>;

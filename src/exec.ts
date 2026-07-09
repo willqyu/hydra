@@ -31,7 +31,7 @@ export function execShell(
     if (opts.timeoutMs) {
       timer = setTimeout(() => {
         child.kill("SIGKILL");
-        stderr += `\n[harness] command timed out after ${opts.timeoutMs}ms`;
+        stderr += `\n[hydra] command timed out after ${opts.timeoutMs}ms`;
       }, opts.timeoutMs);
     }
 

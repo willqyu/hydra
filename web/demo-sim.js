@@ -17,8 +17,8 @@
 // negotiation still comes through, since that's driven by integration steps.
 (function () {
   "use strict";
-  if (window.__HARNESS_DEMO__) return;
-  window.__HARNESS_DEMO__ = true;
+  if (window.__HYDRA_DEMO__) return;
+  window.__HYDRA_DEMO__ = true;
 
   // ------------------------------------------------------------------ vocab
   const VERB = ["Add", "Fix", "Refactor", "Improve", "Harden", "Speed up", "Rework", "Simplify"];
@@ -137,7 +137,7 @@
       taskId: "t" + (++idc), branch, desc: `${pick(VERB)} ${topic.replace(/-/g, " ")}`,
       state: "pending", head: null, priority: 1 + rint(4),
       targetBranch: sessionTarget || (Math.random() < 0.25 ? `release/v${2 + rint(4)}` : "") || undefined,
-      worktree: `${repoRoot}/.harness/worktrees/${branch.replace(/\//g, "_")}`,
+      worktree: `${repoRoot}/.hydra/worktrees/${branch.replace(/\//g, "_")}`,
       checkpoint: null, updatedAt: nowISO(), lastActivityAt: null,
       merged: false, _commits: 0, _ctx: "", _budget: 0, _gone: false, _nego: false,
     };
@@ -297,7 +297,7 @@
     if (p === "/api/spawn") {
       if (body.targetBranch !== undefined) sessionTarget = sanTarget(body.targetBranch);
       const w = makeWorker(pick(TOPIC));
-      if (body.branch) { w.branch = sanTarget(body.branch); w.worktree = `${repoRoot}/.harness/worktrees/${w.branch.replace(/\//g, "_")}`; }
+      if (body.branch) { w.branch = sanTarget(body.branch); w.worktree = `${repoRoot}/.hydra/worktrees/${w.branch.replace(/\//g, "_")}`; }
       if (body.description) w.desc = String(body.description).slice(0, 60);
       if (sessionTarget) w.targetBranch = sessionTarget;
       spawnTask(w);

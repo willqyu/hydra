@@ -2,7 +2,7 @@ import { readdir, stat, open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Git } from "./git.js";
-import type { HarnessEvents } from "./events.js";
+import type { HydraEvents } from "./events.js";
 
 /**
  * Worktree containment guard.
@@ -11,7 +11,7 @@ import type { HarnessEvents } from "./events.js";
  * is only a starting directory — with an unrestricted shell the agent can `cd`
  * anywhere (e.g. into the repo's primary checkout) and `git commit` there, which
  * silently lands its work on the wrong branch (this is how a task can "succeed"
- * yet the harness reports "agent produced no commits"). This module:
+ * yet the hydra reports "agent produced no commits"). This module:
  *   - watches WHERE the agent is actually working (from its live transcript and,
  *     for streaming runs, its tool-call stream) and flags any step taken outside
  *     the worktree; and
@@ -154,7 +154,7 @@ export interface WorktreeMonitorOptions {
   worktree: string;
   repoRoot: string;
   branch: string;
-  events?: HarnessEvents;
+  events?: HydraEvents;
   logger?: (m: string) => void;
   /** Periodic check-in interval (ms). Default 20s. Set 0 to disable the timer. */
   intervalMs?: number;

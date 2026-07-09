@@ -17,11 +17,11 @@ async function write(dir: string, file: string, content: string): Promise<void> 
 
 /** Base repo: lib.greet() consumed by app.js; check.js is the test gate. */
 async function initSemanticRepo(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-m4-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-m4-"));
   const git = new Git(dir);
   await git.run(["init", "-b", "main"]);
   await git.run(["config", "user.email", "test@example.com"]);
-  await git.run(["config", "user.name", "Harness Test"]);
+  await git.run(["config", "user.name", "Hydra Test"]);
   await write(dir, "lib.js", `function greet() { return "hi"; }\nmodule.exports = { greet };\n`);
   await write(dir, "app.js", `const { greet } = require("./lib");\nmodule.exports = function () { return greet() + "!"; };\n`);
   await write(dir, "check.js", `const app = require("./app");\nif (app() !== "hi!") { process.exit(1); }\n`);
@@ -92,12 +92,12 @@ test("semantic conflict (clean merge, broken tests) is caught by the gate and fi
 });
 
 test("an idle worker is checkpointed and rehydrated to resolve a late conflict", async () => {
-  const repo = await mkdtemp(path.join(os.tmpdir(), "harness-m4cp-"));
+  const repo = await mkdtemp(path.join(os.tmpdir(), "hydra-m4cp-"));
   try {
     const git = new Git(repo);
     await git.run(["init", "-b", "main"]);
     await git.run(["config", "user.email", "test@example.com"]);
-    await git.run(["config", "user.name", "Harness Test"]);
+    await git.run(["config", "user.name", "Hydra Test"]);
     await write(repo, "config.txt", "value = base\n");
     await git.run(["add", "."]);
     await git.run(["commit", "-m", "init"]);
@@ -109,7 +109,7 @@ test("an idle worker is checkpointed and rehydrated to resolve a late conflict",
       return { context: `final value for ${ctx.branch} is "${value}"` };
     };
 
-    const checkpointDir = path.join(repo, ".harness", "checkpoints");
+    const checkpointDir = path.join(repo, ".hydra", "checkpoints");
     await new Orchestrator({
       repoRoot: repo,
       runner: new ScriptWorkerRunner({ a: edit("A"), b: edit("B") }),

@@ -9,14 +9,14 @@ import { ScriptWorkerRunner, type WorkerFn } from "../src/worker.js";
 import { Integrator } from "../src/integrator.js";
 import { Negotiator } from "../src/negotiator.js";
 import { ScriptConflictResolver } from "../src/resolver.js";
-import { HarnessEvents, type HarnessEvent } from "../src/events.js";
+import { HydraEvents, type HydraEvent } from "../src/events.js";
 
 async function initRepo(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-m5-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-m5-"));
   const git = new Git(dir);
   await git.run(["init", "-b", "main"]);
   await git.run(["config", "user.email", "test@example.com"]);
-  await git.run(["config", "user.name", "Harness Test"]);
+  await git.run(["config", "user.name", "Hydra Test"]);
   await writeFile(path.join(dir, "config.txt"), "value = base\n");
   await git.run(["add", "."]);
   await git.run(["commit", "-m", "init"]);
@@ -100,8 +100,8 @@ test("the orchestrator tie-breaker resolves after the rounds are exhausted", asy
 test("events stream the whole run and integration state is persisted", async () => {
   const repo = await initRepo();
   try {
-    const events: HarnessEvent[] = [];
-    const bus = new HarnessEvents();
+    const events: HydraEvent[] = [];
+    const bus = new HydraEvents();
     bus.onEvent((e) => events.push(e));
 
     await new Orchestrator({
@@ -121,7 +121,7 @@ test("events stream the whole run and integration state is persisted", async () 
     assert.ok(types.includes("integrate:done"));
 
     // State persisted for the UI to poll.
-    const state = JSON.parse(await readFile(path.join(repo, ".harness", "integration.json"), "utf8"));
+    const state = JSON.parse(await readFile(path.join(repo, ".hydra", "integration.json"), "utf8"));
     assert.equal(state.promoted, true);
     assert.ok(typeof state.updatedAt === "string");
   } finally {

@@ -35,7 +35,7 @@ function encodeProjectDir(cwd: string): string {
 /** Where the orchestrator places a branch's worktree (mirror of WorktreeManager). */
 function worktreePath(repoRoot: string, branch: string): string {
   const safe = branch.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return path.join(repoRoot, ".harness", "worktrees", safe);
+  return path.join(repoRoot, ".hydra", "worktrees", safe);
 }
 
 async function newestTranscript(projectDir: string): Promise<string | null> {
@@ -171,7 +171,7 @@ export async function readAgentLog(repoRoot: string, branch: string, offset = 0)
   return readFromFile(file, offset);
 }
 
-/** One Claude Code session running (or run) for this repo's harness. */
+/** One Claude Code session running (or run) for this repo's hydra. */
 export interface AgentSession {
   /** Opaque, URL-safe key: `<projectDir>::<sessionId>`. */
   id: string;
@@ -192,7 +192,7 @@ export interface AgentSession {
 
 /** The encoded ~/.claude/projects dir prefix shared by every worktree of this repo. */
 function worktreesPrefix(repoRoot: string): string {
-  return encodeProjectDir(path.join(repoRoot, ".harness", "worktrees"));
+  return encodeProjectDir(path.join(repoRoot, ".hydra", "worktrees"));
 }
 
 /** Read the first ~64KB of a transcript to extract its branch, opening prompt and start time. */
@@ -247,7 +247,7 @@ function isPlannerTitle(title: string): boolean {
 }
 
 /** Collect sessions from one project dir. When `plannerOnly`, keep only the most
- *  recent files and only those whose opening prompt is a harness planner. */
+ *  recent files and only those whose opening prompt is a hydra planner. */
 async function collectSessions(
   dir: string,
   role: AgentSession["role"],
@@ -293,7 +293,7 @@ async function collectSessions(
 }
 
 /**
- * Enumerate every Claude session for this repo's harness — workers (branch
+ * Enumerate every Claude session for this repo's hydra — workers (branch
  * worktrees), negotiators (the integration worktree), AND the supervisor /
  * branch-naming agents that plan in the repo root before the fleet. Scans
  * ~/.claude/projects so sessions stay visible even after a worktree is cleaned up.

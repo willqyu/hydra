@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 
 /** Everything observable about a fleet run, for logs and the live UI. */
-export type HarnessEvent =
+export type HydraEvent =
   | { type: "task:start"; taskId: string; branch: string }
   | { type: "task:done"; taskId: string; branch: string; head: string }
   | { type: "task:fail"; taskId: string; branch: string; error: string }
@@ -19,13 +19,13 @@ export type HarnessEvent =
   | { type: "agent:offtrack"; branch: string; cwd?: string; detail: string };
 
 /** Thin typed wrapper over EventEmitter — `onEvent` for everything, plus per-type. */
-export class HarnessEvents extends EventEmitter {
-  emitEvent(e: HarnessEvent): void {
+export class HydraEvents extends EventEmitter {
+  emitEvent(e: HydraEvent): void {
     this.emit("event", e);
     this.emit(e.type, e);
   }
 
-  onEvent(fn: (e: HarnessEvent) => void): () => void {
+  onEvent(fn: (e: HydraEvent) => void): () => void {
     this.on("event", fn);
     return () => this.off("event", fn);
   }

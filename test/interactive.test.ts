@@ -8,7 +8,7 @@ import { Git } from "../src/git.js";
 import { WorktreeManager } from "../src/worktree.js";
 import { InboxManager } from "../src/inbox.js";
 import { StreamingClaudeAgentRunner } from "../src/streaming-worker.js";
-import { HarnessEvents, type HarnessEvent } from "../src/events.js";
+import { HydraEvents, type HydraEvent } from "../src/events.js";
 import type { WorkerContext } from "../src/types.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,11 +17,11 @@ const fakeAgent = path.join(here, "fixtures", "fake-streaming-agent.mjs");
 const textFraming = (text: string) => JSON.stringify({ text }) + "\n";
 
 async function initRepo(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-int-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-int-"));
   const git = new Git(dir);
   await git.run(["init", "-b", "main"]);
   await git.run(["config", "user.email", "test@example.com"]);
-  await git.run(["config", "user.name", "Harness Test"]);
+  await git.run(["config", "user.name", "Hydra Test"]);
   await writeFile(path.join(dir, "README.md"), "# base\n");
   await git.run(["add", "."]);
   await git.run(["commit", "-m", "init"]);
@@ -30,7 +30,7 @@ async function initRepo(): Promise<string> {
 
 /** Build a worktree + WorkerContext for `branch`, as the orchestrator would. */
 async function makeContext(repo: string, branch: string): Promise<WorkerContext> {
-  const wtm = new WorktreeManager(repo, path.join(repo, ".harness", "worktrees"));
+  const wtm = new WorktreeManager(repo, path.join(repo, ".hydra", "worktrees"));
   const head = await new Git(repo).head();
   const worktree = await wtm.add(branch, head);
   return { taskId: branch, branch, description: "interactive task", worktree, repoRoot: repo, git: new Git(worktree) };
@@ -105,8 +105,8 @@ test("pause buffers injections until resume (delivery order honored)", async () 
     await inbox.post("feat/pause", { kind: "resume" });
     await inbox.post("feat/pause", { kind: "end" });
 
-    const events: HarnessEvent[] = [];
-    const ev = new HarnessEvents();
+    const events: HydraEvent[] = [];
+    const ev = new HydraEvents();
     ev.onEvent((e) => events.push(e));
 
     const runner = new StreamingClaudeAgentRunner({

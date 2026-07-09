@@ -11,14 +11,14 @@ description: >-
 
 # orchestrate — parallel multi-agent branch orchestration
 
-This skill drives the `harness` tool (an orchestrator + integration pipeline).
+This skill drives the `hydra` tool (an orchestrator + integration pipeline).
 The orchestrator fans tasks out to worker agents on separate worktrees,
 checkpoints their state, and a merge-train integrates the branches into `main` —
 serializing merges, running a test gate after each, and negotiating conflicts
 (textual *and* semantic) before promoting `main`.
 
-`harness` lives at `C:\code\harness` (run via `npm run harness -- <args>`
-there, or `node --import tsx C:\code\harness\src\cli.ts <args>`).
+`hydra` lives at `C:\code\hydra` (run via `npm run hydra -- <args>`
+there, or `node --import tsx C:\code\hydra\src\cli.ts <args>`).
 
 ## When to use vs. not
 
@@ -53,26 +53,26 @@ Write it to a tasks file, e.g. `tasks.json`:
 }
 ```
 
-See `C:\code\harness\examples\tasks.example.json`.
+See `C:\code\hydra\examples\tasks.example.json`.
 
 ### 2. Run the fleet
 
 ```
-npm run harness -- run tasks.json --repo <target-repo> --concurrency 3
+npm run hydra -- run tasks.json --repo <target-repo> --concurrency 3
 ```
 
 Each task gets a worktree + branch; a Claude Code agent implements it and
 commits **incrementally** (the worker brief instructs agents to commit after each
 logical step, not only at the end). Add `--dangerous` for fully autonomous agents
 (`--dangerously-skip-permissions`); otherwise agents run with `acceptEdits`.
-Completed workers are checkpointed under `<repo>/.harness/checkpoints`.
+Completed workers are checkpointed under `<repo>/.hydra/checkpoints`.
 
 Add `--interactive` to keep each agent long-lived and steerable (see step 3b).
 
 ### 3. Integrate into main
 
 ```
-npm run harness -- integrate --repo <target-repo> --test "npm test" --max-rounds 3
+npm run hydra -- integrate --repo <target-repo> --test "npm test" --max-rounds 3
 ```
 
 With no `--branches`, it integrates all completed branches from the registry.
@@ -89,10 +89,10 @@ When you ran with `--interactive`, you can talk to one agent while the others
 keep working — useful to correct course or add a constraint without restarting:
 
 ```
-npm run harness -- inject --repo <target> --branch feat/users-api --text "reuse the existing validator in lib/validate"
-npm run harness -- pause  --repo <target> --branch feat/users-api      # buffer further messages
-npm run harness -- resume --repo <target> --branch feat/users-api      # flush them
-npm run harness -- end    --repo <target> --branch feat/users-api      # tell the agent to wrap up
+npm run hydra -- inject --repo <target> --branch feat/users-api --text "reuse the existing validator in lib/validate"
+npm run hydra -- pause  --repo <target> --branch feat/users-api      # buffer further messages
+npm run hydra -- resume --repo <target> --branch feat/users-api      # flush them
+npm run hydra -- end    --repo <target> --branch feat/users-api      # tell the agent to wrap up
 ```
 
 The dashboard exposes the same controls (a steer box + Pause/Resume per running
@@ -101,14 +101,14 @@ agent). Messages route only to the addressed branch's agent.
 ### 4. Monitor (optional)
 
 ```
-npm run harness -- serve --repo <target-repo> --port 4317
+npm run hydra -- serve --repo <target-repo> --port 4317
 ```
 
 Opens a dashboard at http://127.0.0.1:4317 showing workers, worktrees,
 checkpoints, and integration status (polls every 2s). Or one-shot:
 
 ```
-npm run harness -- status --repo <target-repo> --json
+npm run hydra -- status --repo <target-repo> --json
 ```
 
 ## Reporting back

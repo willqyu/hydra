@@ -1,6 +1,6 @@
 import { runClaude } from "./claude.js";
 import { WorktreeMonitor, sanityCheckResult } from "./worktree-guard.js";
-import type { HarnessEvents } from "./events.js";
+import type { HydraEvents } from "./events.js";
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
 /** A worker may return distilled context to be saved in its checkpoint. */
@@ -49,7 +49,7 @@ export interface ClaudeAgentRunnerOptions {
   /** Spawn through a shell (needed if `bin` is a shell builtin/alias). Default false. */
   shell?: boolean;
   /** Fleet event bus — used to surface worktree-containment warnings. */
-  events?: HarnessEvents;
+  events?: HydraEvents;
   logger?: (m: string) => void;
 }
 

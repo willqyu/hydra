@@ -4,7 +4,7 @@ import { WorktreeManager, BranchBusyError } from "./worktree.js";
 import { Registry } from "./registry.js";
 import { TaskDag } from "./task-dag.js";
 import { CheckpointManager } from "./checkpoint.js";
-import { HarnessEvents } from "./events.js";
+import { HydraEvents } from "./events.js";
 import { InboxManager } from "./inbox.js";
 import type { TaskId, TaskSpec, WorkerContext, WorkerRunner } from "./types.js";
 
@@ -15,16 +15,16 @@ export interface OrchestratorOptions {
   baseRef?: string;
   /** Max concurrent workers. Default 4. */
   concurrency?: number;
-  /** Directory for worktrees. Default <repoRoot>/.harness/worktrees. */
+  /** Directory for worktrees. Default <repoRoot>/.hydra/worktrees. */
   worktreeDir?: string;
-  /** Registry file. Default <repoRoot>/.harness/registry.json. */
+  /** Registry file. Default <repoRoot>/.hydra/registry.json. */
   registryFile?: string;
   /** Remove a worktree after its worker finishes (branch retained). Default true. */
   cleanupWorktrees?: boolean;
-  /** Directory for worker checkpoints. Default <repoRoot>/.harness/checkpoints. */
+  /** Directory for worker checkpoints. Default <repoRoot>/.hydra/checkpoints. */
   checkpointDir?: string;
   /** Emits task:* events for the live UI. */
-  events?: HarnessEvents;
+  events?: HydraEvents;
   logger?: (msg: string) => void;
 }
 
@@ -64,13 +64,13 @@ export class Orchestrator {
     const cleanup = this.opts.cleanupWorktrees ?? true;
     const wtm = new WorktreeManager(
       repoRoot,
-      this.opts.worktreeDir ?? path.join(repoRoot, ".harness", "worktrees"),
+      this.opts.worktreeDir ?? path.join(repoRoot, ".hydra", "worktrees"),
     );
     const registry = await Registry.open(
-      this.opts.registryFile ?? path.join(repoRoot, ".harness", "registry.json"),
+      this.opts.registryFile ?? path.join(repoRoot, ".hydra", "registry.json"),
     );
     const checkpoints = new CheckpointManager(
-      this.opts.checkpointDir ?? path.join(repoRoot, ".harness", "checkpoints"),
+      this.opts.checkpointDir ?? path.join(repoRoot, ".hydra", "checkpoints"),
     );
     const inboxes = new InboxManager(repoRoot);
 

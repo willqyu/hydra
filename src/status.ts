@@ -60,7 +60,7 @@ export async function reconcileOrphanedWorkers(
   repoRoot: string,
   paths: FleetStatusPaths = {},
 ): Promise<string[]> {
-  const dir = path.join(repoRoot, ".harness");
+  const dir = path.join(repoRoot, ".hydra");
   const registry = await Registry.open(paths.registryFile ?? path.join(dir, "registry.json"));
   const running = registry.all().filter((e) => e.state === "running");
   if (running.length === 0) return [];
@@ -93,11 +93,11 @@ export async function reconcileOrphanedWorkers(
 }
 
 /**
- * Aggregates everything the orchestrator persisted under .harness into a single
- * snapshot — the read model behind both `harness status` and the web UI.
+ * Aggregates everything the orchestrator persisted under .hydra into a single
+ * snapshot — the read model behind both `hydra status` and the web UI.
  */
 export async function readFleetStatus(repoRoot: string, paths: FleetStatusPaths = {}): Promise<FleetStatus> {
-  const dir = path.join(repoRoot, ".harness");
+  const dir = path.join(repoRoot, ".hydra");
   // Self-heal frozen `running` entries from crashed runs before reading.
   await reconcileOrphanedWorkers(repoRoot, paths).catch(() => {});
   const registry = await Registry.open(paths.registryFile ?? path.join(dir, "registry.json"));

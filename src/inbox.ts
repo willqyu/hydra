@@ -23,7 +23,7 @@ export class InboxManager {
   readonly dir: string;
 
   constructor(repoRoot: string, dir?: string) {
-    this.dir = dir ?? path.join(repoRoot, ".harness", "inbox");
+    this.dir = dir ?? path.join(repoRoot, ".hydra", "inbox");
   }
 
   private fileFor(branch: string): string {

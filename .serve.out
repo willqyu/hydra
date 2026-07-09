@@ -1,5 +1,5 @@
 
-> harness@0.1.0 harness
+> hydra@0.1.0 hydra
 > node --import tsx src/cli.ts serve --repo /home/will/Cube --port 4317
 
-harness dashboard → http://127.0.0.1:4317  (repo: /home/will/Cube)
+hydra dashboard → http://127.0.0.1:4317  (repo: /home/will/Cube)

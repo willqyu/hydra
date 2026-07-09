@@ -15,12 +15,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fakeResolver = path.join(here, "fixtures", "fake-resolver.mjs");
 
 test("ClaudeConflictResolver runs an agent in the worktree to resolve a conflict", async () => {
-  const repo = await mkdtemp(path.join(os.tmpdir(), "harness-cres-"));
+  const repo = await mkdtemp(path.join(os.tmpdir(), "hydra-cres-"));
   try {
     const git = new Git(repo);
     await git.run(["init", "-b", "main"]);
     await git.run(["config", "user.email", "test@example.com"]);
-    await git.run(["config", "user.name", "Harness Test"]);
+    await git.run(["config", "user.name", "Hydra Test"]);
     await writeFile(path.join(repo, "config.txt"), "value = base\n");
     await git.run(["add", "."]);
     await git.run(["commit", "-m", "init"]);

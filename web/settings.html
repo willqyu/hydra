@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>harness · settings</title>
+    <title>hydra · settings</title>
     <style>
       :root {
         --bg: #0d1117; --panel: #161b22; --border: #30363d; --fg: #e6edf3;
@@ -54,7 +54,7 @@
   </head>
   <body>
     <header>
-      <h1>⛓ harness · settings</h1>
+      <h1>⛓ hydra · settings</h1>
       <a class="navlink" href="/">← fleet</a>
       <a class="navlink" href="/branches">branch log →</a>
       <span class="dot" id="state">loading…</span>
@@ -65,7 +65,7 @@
         <div class="body" id="prompts">
           <p class="note">
             Each role's standing system prompt, applied via <code>--append-system-prompt</code>.
-            Pre-filled with the harness's built-in default — edit to customize, or
+            Pre-filled with the hydra's built-in default — edit to customize, or
             clear a box to restore the default. Applies to newly spawned agents
             (running ones are unaffected).
           </p>
@@ -134,7 +134,7 @@
             // (= CLI default) unless explicitly set.
             el.value = saved ?? (el.dataset.kind === "prompts" ? (defaults[el.dataset.role] || "") : "");
           });
-          $("state").textContent = "config: .harness/config.json";
+          $("state").textContent = "config: .hydra/config.json";
         } catch (e) {
           $("state").textContent = "disconnected";
         }

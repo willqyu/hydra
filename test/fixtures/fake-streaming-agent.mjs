@@ -1,7 +1,7 @@
 // Stand-in for an interactive `claude` agent in stream-json mode.
 // Reads newline-delimited JSON messages from stdin; each carries a `.text`
 // (the test uses a simple {text} framing). For every message it writes a file
-// and commits it, so the harness sees real commits and the test can assert that
+// and commits it, so the hydra sees real commits and the test can assert that
 // an injected message was delivered. Exits when stdin closes.
 import { execSync } from "node:child_process";
 import { writeFileSync } from "node:fs";

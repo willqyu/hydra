@@ -11,11 +11,11 @@ import { MergeTool } from "../src/merge.js";
 import { WorktreeManager } from "../src/worktree.js";
 
 async function initRepo(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-m2-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-m2-"));
   const git = new Git(dir);
   await git.run(["init", "-b", "main"]);
   await git.run(["config", "user.email", "test@example.com"]);
-  await git.run(["config", "user.name", "Harness Test"]);
+  await git.run(["config", "user.name", "Hydra Test"]);
   await writeFile(path.join(dir, "README.md"), "# base\n");
   await git.run(["add", "."]);
   await git.run(["commit", "-m", "init"]);
@@ -56,7 +56,7 @@ test("non-conflicting branches land on main through the merge train", async () =
     assert.equal(await git.run(["show", "main:b.txt"]), "from B");
 
     // staging worktree cleaned up — only main remains
-    const wtm = new WorktreeManager(repo, path.join(repo, ".harness", "worktrees"));
+    const wtm = new WorktreeManager(repo, path.join(repo, ".hydra", "worktrees"));
     assert.equal((await wtm.list()).length, 1);
   } finally {
     await rm(repo, { recursive: true, force: true });
@@ -96,7 +96,7 @@ test("integrates into a NEW target branch, forked off the trunk, leaving main un
 
     // The registry recorded the target for each task.
     const { Registry } = await import("../src/registry.js");
-    const reg = await Registry.open(path.join(repo, ".harness", "registry.json"));
+    const reg = await Registry.open(path.join(repo, ".hydra", "registry.json"));
     assert.equal(reg.get("feat/a")?.targetBranch, "release/1");
     assert.equal(reg.get("feat/b")?.targetBranch, "release/1");
   } finally {

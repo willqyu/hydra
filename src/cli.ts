@@ -5,13 +5,13 @@ import { Git } from "./git.js";
 import { Orchestrator } from "./orchestrator.js";
 import { ClaudeAgentRunner } from "./worker.js";
 import { StreamingClaudeAgentRunner, STREAMING_DEFAULT_ARGS } from "./streaming-worker.js";
-import { loadConfig, roleArgs, type HarnessConfig } from "./config.js";
+import { loadConfig, roleArgs, type HydraConfig } from "./config.js";
 import { loadSession } from "./session.js";
 import { InboxManager } from "./inbox.js";
 import { Integrator } from "./integrator.js";
 import { Negotiator } from "./negotiator.js";
 import { ClaudeConflictResolver } from "./claude-resolver.js";
-import { HarnessEvents } from "./events.js";
+import { HydraEvents } from "./events.js";
 import { Registry } from "./registry.js";
 import { CheckpointManager } from "./checkpoint.js";
 import { superviseTask, singleFallback, nameBranch, type SupervisorPlan } from "./supervisor.js";
@@ -62,11 +62,11 @@ function agentArgs(f: Flags): string[] {
 
 /** Build the worker runner the run/plan commands share (interactive or one-shot).
  *  Applies the repo's configured default model + extra system prompt for workers. */
-function makeRunner(f: Flags, events: HarnessEvents, cfg: HarnessConfig, modelOverride?: string) {
+function makeRunner(f: Flags, events: HydraEvents, cfg: HydraConfig, modelOverride?: string) {
   // A per-run model (picked in the Spawn panel / `--model`) wins over config.
   const worker = roleArgs(cfg, "worker", modelOverride || str(f, "model") || undefined);
   if (f.interactive) {
-    console.log("interactive mode — steer agents via `harness inject` or the dashboard");
+    console.log("interactive mode — steer agents via `hydra inject` or the dashboard");
     return new StreamingClaudeAgentRunner({
       bin: str(f, "agent-bin") || undefined,
       args: [...STREAMING_DEFAULT_ARGS, ...worker],
@@ -106,7 +106,7 @@ async function runFleet(
 async function cmdRun(f: Flags): Promise<void> {
   const repo = path.resolve(str(f, "repo", process.cwd()));
   const file = (f._ as string[])[1];
-  if (!file) throw new Error("usage: harness run <tasks.json> [--repo .] [--concurrency N] [--base REF] [--dangerous]");
+  if (!file) throw new Error("usage: hydra run <tasks.json> [--repo .] [--concurrency N] [--base REF] [--dangerous]");
   const parsed = JSON.parse(await readFile(path.resolve(file), "utf8"));
   const tasks: TaskSpec[] = Array.isArray(parsed) ? parsed : parsed.tasks;
   // A file-level (or session) target applies to any task that didn't name its own.
@@ -125,7 +125,7 @@ async function cmdRun(f: Flags): Promise<void> {
 async function cmdPlan(f: Flags): Promise<void> {
   const repo = path.resolve(str(f, "repo", process.cwd()));
   const reqFile = (f._ as string[])[1];
-  if (!reqFile) throw new Error("usage: harness plan <request.json> [--repo .] [--dangerous]");
+  if (!reqFile) throw new Error("usage: hydra plan <request.json> [--repo .] [--dangerous]");
   const req = JSON.parse(await readFile(path.resolve(reqFile), "utf8")) as {
     description: string;
     branch?: string;
@@ -203,7 +203,7 @@ async function buildContinuation(
   newDescription: string,
 ): Promise<{ description: string; baseRef?: string; merged: boolean }> {
   const git = new Git(repo);
-  const cpm = new CheckpointManager(path.join(repo, ".harness", "checkpoints"));
+  const cpm = new CheckpointManager(path.join(repo, ".hydra", "checkpoints"));
   const cp = await cpm.load(branch).catch(() => undefined);
 
   // Base the continuation on the live branch ref if present, else its checkpoint head.
@@ -243,7 +243,7 @@ async function cmdIntegrate(f: Flags): Promise<void> {
     // Repair any frozen `running` entries from crashed runs so finished-but-stuck
     // branches are integrated rather than silently skipped.
     await reconcileOrphanedWorkers(repo).catch(() => {});
-    const reg = await Registry.open(path.join(repo, ".harness", "registry.json"));
+    const reg = await Registry.open(path.join(repo, ".hydra", "registry.json"));
     let completed = reg.all().filter((e) => e.state === "completed");
     if (prioritized) {
       completed = completed.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
@@ -318,7 +318,7 @@ async function cmdStatus(f: Flags): Promise<void> {
     console.log(JSON.stringify(status, null, 2));
     return;
   }
-  console.log(`harness status — ${repo}\n`);
+  console.log(`hydra status — ${repo}\n`);
   console.log("workers:");
   for (const w of status.workers) {
     console.log(`  ${w.state.padEnd(10)} ${w.branch.padEnd(24)} ${(w.head ?? "").slice(0, 8)}`);
@@ -335,7 +335,7 @@ async function cmdInject(f: Flags): Promise<void> {
   const repo = path.resolve(str(f, "repo", process.cwd()));
   const branch = str(f, "branch");
   const text = str(f, "text") || (f._ as string[]).slice(1).join(" ");
-  if (!branch || !text) throw new Error('usage: harness inject --branch <branch> --text "message"');
+  if (!branch || !text) throw new Error('usage: hydra inject --branch <branch> --text "message"');
   await new InboxManager(repo).post(branch, { kind: "inject", text, from: "cli" });
   console.log(`injected to ${branch}`);
 }
@@ -343,7 +343,7 @@ async function cmdInject(f: Flags): Promise<void> {
 async function cmdControl(action: "pause" | "resume" | "end", f: Flags): Promise<void> {
   const repo = path.resolve(str(f, "repo", process.cwd()));
   const branch = str(f, "branch") || (f._ as string[])[1] || "";
-  if (!branch) throw new Error(`usage: harness ${action} --branch <branch>`);
+  if (!branch) throw new Error(`usage: hydra ${action} --branch <branch>`);
   await new InboxManager(repo).post(branch, { kind: action, from: "cli" });
   console.log(`${action} → ${branch}`);
 }
@@ -354,8 +354,8 @@ async function cmdServe(f: Flags): Promise<void> {
   await new Promise(() => {}); // run forever
 }
 
-function logEvents(): HarnessEvents {
-  const ev = new HarnessEvents();
+function logEvents(): HydraEvents {
+  const ev = new HydraEvents();
   ev.onEvent((e) => {
     if (e.type === "escalate") console.log(`  ⚠ escalate ${e.branch} (${e.kind}): ${e.detail}`);
     if (e.type === "agent:offtrack") console.log(`  ⚠ off-track ${e.branch}: ${e.detail}`);
@@ -378,18 +378,18 @@ async function main(): Promise<void> {
     case "resume": return cmdControl("resume", f);
     case "end": return cmdControl("end", f);
     default:
-      console.log(`harness — parallel multi-agent branch orchestration
+      console.log(`hydra — parallel multi-agent branch orchestration
 
 usage:
-  harness run <tasks.json> [--repo .] [--concurrency 4] [--base REF] [--agent-bin claude] [--interactive] [--dangerous]
-  harness plan <request.json> [--repo .] [--concurrency 4] [--interactive] [--dangerous]
+  hydra run <tasks.json> [--repo .] [--concurrency 4] [--base REF] [--agent-bin claude] [--interactive] [--dangerous]
+  hydra plan <request.json> [--repo .] [--concurrency 4] [--interactive] [--dangerous]
        request.json: { "description", "branch"?, "mode"? (single|auto|split), "continueFrom"?, "targetBranch"? }
-  harness integrate [--branches a,b] [--prioritized] [--test "npm test"] [--into BRANCH] [--max-rounds 3] [--repo .] [--dangerous]
+  hydra integrate [--branches a,b] [--prioritized] [--test "npm test"] [--into BRANCH] [--max-rounds 3] [--repo .] [--dangerous]
        --into: branch to merge the fleet into (created off the trunk if new); default = session target, else main/master
-  harness status [--repo .] [--json]
-  harness serve [--repo .] [--port 4317]
-  harness inject --branch <b> --text "message"     # steer one running agent (interactive mode)
-  harness pause|resume|end --branch <b>             # control one running agent
+  hydra status [--repo .] [--json]
+  hydra serve [--repo .] [--port 4317]
+  hydra inject --branch <b> --text "message"     # steer one running agent (interactive mode)
+  hydra pause|resume|end --branch <b>             # control one running agent
 
 tasks.json: { "tasks": [ { "id", "branch", "description", "blockedBy"? } ], "concurrency"?: 4 }`);
       if (cmd) process.exitCode = 1;

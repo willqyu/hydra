@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { execShell } from "./exec.js";
 import { IntraFleetBus } from "./bus.js";
-import { HarnessEvents } from "./events.js";
+import { HydraEvents } from "./events.js";
 import type { ConflictResolver, ConflictFile } from "./resolver.js";
 import type {
   ConflictResolution,
@@ -23,7 +23,7 @@ export interface NegotiatorOptions {
    *  rounds are exhausted, before escalating to a human. */
   tieBreaker?: ConflictResolver;
   bus?: IntraFleetBus;
-  events?: HarnessEvents;
+  events?: HydraEvents;
   testTimeoutMs?: number;
   logger?: (m: string) => void;
   onEscalate?: (info: { branch: string; kind: "textual" | "semantic"; detail: string }) => void;
@@ -46,7 +46,7 @@ export class Negotiator implements NegotiatorInterface {
   private readonly maxRounds: number;
   private readonly tieBreaker?: ConflictResolver;
   private readonly bus?: IntraFleetBus;
-  private readonly events?: HarnessEvents;
+  private readonly events?: HydraEvents;
   private readonly testTimeoutMs?: number;
   private readonly log: (m: string) => void;
   private readonly onEscalate?: NegotiatorOptions["onEscalate"];

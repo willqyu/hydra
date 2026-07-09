@@ -12,11 +12,11 @@ import { ScriptConflictResolver } from "../src/resolver.js";
 import { IntraFleetBus } from "../src/bus.js";
 
 async function initRepo(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-m3-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-m3-"));
   const git = new Git(dir);
   await git.run(["init", "-b", "main"]);
   await git.run(["config", "user.email", "test@example.com"]);
-  await git.run(["config", "user.name", "Harness Test"]);
+  await git.run(["config", "user.name", "Hydra Test"]);
   await writeFile(path.join(dir, "config.txt"), "value = base\n");
   await git.run(["add", "."]);
   await git.run(["commit", "-m", "init"]);

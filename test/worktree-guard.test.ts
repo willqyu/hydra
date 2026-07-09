@@ -13,11 +13,11 @@ import {
 } from "../src/worktree-guard.js";
 
 async function initRepo(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "harness-guard-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hydra-guard-"));
   const git = new Git(dir);
   await git.run(["init", "-b", "main"]);
   await git.run(["config", "user.email", "test@example.com"]);
-  await git.run(["config", "user.name", "Harness Test"]);
+  await git.run(["config", "user.name", "Hydra Test"]);
   await writeFile(path.join(dir, "README.md"), "# base\n");
   await git.run(["add", "."]);
   await git.run(["commit", "-m", "init"]);
@@ -25,7 +25,7 @@ async function initRepo(): Promise<string> {
 }
 
 test("bashWorkingDir extracts an escaping `cd` target", () => {
-  const wt = "/home/u/repo/.harness/worktrees/feat_x";
+  const wt = "/home/u/repo/.hydra/worktrees/feat_x";
   // No cd → runs in the worktree.
   assert.equal(bashWorkingDir("git commit -m hi", wt), wt);
   // cd to the primary checkout → that absolute path wins.
@@ -37,7 +37,7 @@ test("bashWorkingDir extracts an escaping `cd` target", () => {
 });
 
 test("isInsideWorktree distinguishes inside vs escaped dirs", () => {
-  const wt = "/home/u/repo/.harness/worktrees/feat_x";
+  const wt = "/home/u/repo/.hydra/worktrees/feat_x";
   assert.equal(isInsideWorktree(wt, wt), true);
   assert.equal(isInsideWorktree(path.join(wt, "src/app"), wt), true);
   assert.equal(isInsideWorktree("/home/u/repo", wt), false);

@@ -43,7 +43,7 @@ export function defaultClaudeBin(): string {
  * wins. Otherwise: on Windows a `.cmd`/`.bat` shim (like `claude.cmd`) MUST run
  * through a shell — spawning a batch file directly throws `EINVAL` on modern Node
  * (the CVE-2024-27980 hardening). On POSIX the bin is a real executable, so we
- * spawn it directly. This is what lets the same harness work on both WSL/Ubuntu
+ * spawn it directly. This is what lets the same hydra work on both WSL/Ubuntu
  * and native Windows.
  */
 export function shouldUseShell(bin: string, explicit?: boolean): boolean {
@@ -72,7 +72,7 @@ export function runClaude(opts: RunClaudeOptions): Promise<RunClaudeResult> {
 
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      stderr += "\n[harness] agent timed out";
+      stderr += "\n[hydra] agent timed out";
     }, opts.timeoutMs ?? 30 * 60 * 1000);
 
     child.on("error", (err) => {

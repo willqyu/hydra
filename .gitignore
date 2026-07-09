@@ -3,4 +3,4 @@ dist/
 *.log
 .DS_Store
 # scratch worktrees created during local runs/tests
-.harness/
+.hydra/

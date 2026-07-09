@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 /**
- * Sticky, per-repo dashboard session state, persisted at .harness/session.json.
+ * Sticky, per-repo dashboard session state, persisted at .hydra/session.json.
  * Its one job today is the ACTIVE INTEGRATION TARGET: the branch that agent work
  * spawned from this session should ultimately land in. Once set, every subsequent
  * spawn tags its tasks with this target and the Integrate action defaults to it —
@@ -18,7 +18,7 @@ export interface SessionState {
 }
 
 function sessionFile(repoRoot: string): string {
-  return path.join(repoRoot, ".harness", "session.json");
+  return path.join(repoRoot, ".hydra", "session.json");
 }
 
 /** Coerce arbitrary input into a safe branch name, or "" if unusable/cleared. */
