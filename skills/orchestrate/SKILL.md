@@ -17,8 +17,10 @@ checkpoints their state, and a merge-train integrates the branches into `main` �
 serializing merges, running a test gate after each, and negotiating conflicts
 (textual *and* semantic) before promoting `main`.
 
-`hydra` lives at `C:\code\hydra` (run via `npm run hydra -- <args>`
-there, or `node --import tsx C:\code\hydra\src\cli.ts <args>`).
+`hydra` lives wherever you cloned it — referred to below as `<hydra>`
+(e.g. `~/code/hydra` on macOS/Linux, `C:\code\hydra` on Windows). Run it
+from that directory via `npm run hydra -- <args>`, or from anywhere via
+`node --import tsx <hydra>/src/cli.ts <args>`.
 
 ## When to use vs. not
 
@@ -53,7 +55,7 @@ Write it to a tasks file, e.g. `tasks.json`:
 }
 ```
 
-See `C:\code\hydra\examples\tasks.example.json`.
+See `<hydra>/examples/tasks.example.json`.
 
 ### 2. Run the fleet
 
@@ -98,14 +100,27 @@ npm run hydra -- end    --repo <target> --branch feat/users-api      # tell the 
 The dashboard exposes the same controls (a steer box + Pause/Resume per running
 agent). Messages route only to the addressed branch's agent.
 
-### 4. Monitor (optional)
+### 4. Monitor (optional — bring up the dashboard)
+
+There is no long-running hydra daemon: `run` and `integrate` are one-shot and
+write everything to `<repo>/.hydra`. The dashboard is a **separate, optional**
+process that reads/steers that same state — bring it up whenever you want a live
+view (a good default is to start it *before* the run so you can watch agents
+appear). Leave it running in the background; it does not block the run:
 
 ```
 npm run hydra -- serve --repo <target-repo> --port 4317
 ```
 
 Opens a dashboard at http://127.0.0.1:4317 showing workers, worktrees,
-checkpoints, and integration status (polls every 2s). Or one-shot:
+checkpoints, and integration status (polls every 2s).
+
+Each dashboard is pinned to **one repo and one port**. To watch a second repo,
+start another with a different `--port`. If the requested port is already taken
+(e.g. another repo's dashboard), hydra reports which repo owns it and moves to
+the next free port automatically — read the startup line for the actual URL.
+
+For a quick non-UI snapshot instead:
 
 ```
 npm run hydra -- status --repo <target-repo> --json
