@@ -17,8 +17,10 @@ checkpoints their state, and a merge-train integrates the branches into `main` â
 serializing merges, running a test gate after each, and negotiating conflicts
 (textual *and* semantic) before promoting `main`.
 
-`hydra` lives at `C:\code\hydra` (run via `npm run hydra -- <args>`
-there, or `node --import tsx C:\code\hydra\src\cli.ts <args>`).
+`hydra` lives wherever you cloned it â€” referred to below as `<hydra>`
+(e.g. `~/code/hydra` on macOS/Linux, `C:\code\hydra` on Windows). Run it
+from that directory via `npm run hydra -- <args>`, or from anywhere via
+`node --import tsx <hydra>/src/cli.ts <args>`.
 
 ## When to use vs. not
 
@@ -53,7 +55,7 @@ Write it to a tasks file, e.g. `tasks.json`:
 }
 ```
 
-See `C:\code\hydra\examples\tasks.example.json`.
+See `<hydra>/examples/tasks.example.json`.
 
 ### 2. Run the fleet
 
