@@ -27,6 +27,9 @@ export interface ServerOptions {
   repoRoot: string;
   port?: number;
   host?: string;
+  /** When the requested port is taken, try the next ports instead of crashing.
+   *  Default true. Set false to fail fast on EADDRINUSE. */
+  autoPort?: boolean;
   logger?: (m: string) => void;
 }
 
@@ -337,6 +340,10 @@ export function startServer(opts: ServerOptions): http.Server {
         return send(res, 200, "application/json", JSON.stringify({ tasks: out }));
       }
 
+      if (url.pathname === "/api/whoami") {
+        // Lets another hydra that hits this port identify which repo owns it.
+        return send(res, 200, "application/json", JSON.stringify({ repoRoot: opts.repoRoot }));
+      }
       if (url.pathname === "/api/status") {
         const status = await readFleetStatus(opts.repoRoot);
         return send(res, 200, "application/json", JSON.stringify({ ...status, integrating }));
@@ -432,10 +439,61 @@ export function startServer(opts: ServerOptions): http.Server {
     }
   });
 
-  server.listen(port, host, () => {
-    log(`hydra dashboard → http://${host}:${port}  (repo: ${opts.repoRoot})`);
-  });
+  const autoPort = opts.autoPort ?? true;
+  const MAX_TRIES = 20;
+
+  const tryListen = (p: number, attempt: number): void => {
+    const onError = (err: NodeJS.ErrnoException): void => {
+      server.removeListener("listening", onListening); // this attempt failed
+      if (err.code !== "EADDRINUSE") {
+        log(`server error: ${err.message}`);
+        return;
+      }
+      // Someone already holds this port — best-effort ask whom, then move on.
+      void probeOwner(host, p).then((owner) => {
+        const who = owner ? `serving ${owner}` : "in use by another process";
+        if (!autoPort || attempt >= MAX_TRIES) {
+          log(`port ${p} is ${who}. Pass --port <n> to pick another.`);
+          process.exitCode = 1;
+          return;
+        }
+        log(`port ${p} is ${who} — trying ${p + 1}…`);
+        tryListen(p + 1, attempt + 1);
+      });
+    };
+    const onListening = (): void => {
+      server.removeListener("error", onError); // bound cleanly — stop port-hopping
+      log(`hydra dashboard → http://${host}:${p}  (repo: ${opts.repoRoot})`);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(p, host);
+  };
+  tryListen(port, 0);
   return server;
+}
+
+/** Best-effort: ask a hydra already bound to host:port which repo it's serving.
+ *  Resolves null on any error/timeout so the caller can fall back regardless. */
+function probeOwner(host: string, port: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const req = http.get({ host, port, path: "/api/whoami", timeout: 500 }, (res) => {
+      let body = "";
+      res.on("data", (d) => (body += d));
+      res.on("end", () => {
+        try {
+          resolve((JSON.parse(body) as { repoRoot?: string }).repoRoot ?? null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
 }
 
 function send(res: http.ServerResponse, code: number, type: string, body: string): void {
