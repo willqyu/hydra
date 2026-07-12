@@ -9,6 +9,14 @@ export interface TaskSpec {
   branch: string;
   /** Human-readable spec handed to the worker. */
   description: string;
+  /**
+   * The verbatim original user request this task was derived from. When a
+   * supervisor decomposes one prompt into a fleet, every task's `description` is a
+   * narrowed sub-brief; this keeps the overarching prompt so each worker (and each
+   * branch's durable record) preserves what the human actually asked for. Absent
+   * for hand-written task specs where the description already IS the request.
+   */
+  originalPrompt?: string;
   /** Task ids that must complete before this one can start. */
   blockedBy?: TaskId[];
   /**
@@ -40,6 +48,8 @@ export interface WorkerContext {
   taskId: TaskId;
   branch: string;
   description: string;
+  /** The verbatim original user request this task was derived from (see TaskSpec). */
+  originalPrompt?: string;
   /** Absolute path to the isolated git worktree for this task. */
   worktree: string;
   /** Repo root — used to locate the per-agent inbox for live interaction. */

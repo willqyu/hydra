@@ -3,3 +3,23 @@
 > node --import tsx src/cli.ts serve --repo /home/will/Cube --port 4317
 
 hydra dashboard → http://127.0.0.1:4317  (repo: /home/will/Cube)
+session target → tag-generation
+plan spawned (mode=auto, into tag-generation)
+integrate started (textual-only)
+plan spawned (mode=auto, into tag-generation)
+integrate started (textual-only)
+plan spawned (mode=auto, continue feat/apriltag-id-caption, into tag-generation)
+integrate started (textual-only)
+session target → screw-presenter-tiein
+plan spawned (mode=auto, into screw-presenter-tiein)
+session target → multiple-pickup
+plan spawned (mode=auto, into multiple-pickup)
+session target → apriltag-uniqueness
+plan spawned (mode=auto, into apriltag-uniqueness)
+session target → (trunk)
+plan spawned (mode=auto)
+integrate started (textual-only)
+integrate started (textual-only)
+plan spawned (mode=auto, continue feat/operations-group-by-assembly)
+plan spawned (mode=auto, continue feat/multi-pickup-fixtures)
+integrate started (textual-only)

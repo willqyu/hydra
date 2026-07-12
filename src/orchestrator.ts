@@ -91,6 +91,7 @@ export class Orchestrator {
           taskId: id,
           branch: node.branch,
           description: node.description,
+          originalPrompt: node.originalPrompt,
           worktree,
           repoRoot,
           git: new Git(worktree),
@@ -103,6 +104,7 @@ export class Orchestrator {
           branch: node.branch,
           head,
           description: node.description,
+          originalPrompt: node.originalPrompt,
           context: result.context,
         });
         dag.setState(id, "completed");

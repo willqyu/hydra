@@ -316,27 +316,27 @@ export function startServer(opts: ServerOptions): http.Server {
         const cps = await new CheckpointManager(path.join(opts.repoRoot, ".hydra", "checkpoints")).list();
         const cpByBranch = new Map(cps.map((c) => [c.branch, c]));
         const seen = new Set<string>();
-        const tasks: Array<{ branch: string; taskId: string; state: string; description: string; updatedAt: string }> = [];
+        const tasks: Array<{ branch: string; taskId: string; state: string; description: string; originalPrompt: string; updatedAt: string }> = [];
         for (const e of reg.all()) {
           const cp = cpByBranch.get(e.branch);
-          tasks.push({ branch: e.branch, taskId: e.taskId, state: e.state, description: cp?.description ?? "", updatedAt: e.updatedAt });
+          tasks.push({ branch: e.branch, taskId: e.taskId, state: e.state, description: cp?.description ?? "", originalPrompt: cp?.originalPrompt ?? "", updatedAt: e.updatedAt });
           seen.add(e.branch);
         }
         for (const c of cps) {
           // Orphan checkpoints (no registry entry) are still continuable work.
-          if (!seen.has(c.branch)) tasks.push({ branch: c.branch, taskId: c.taskId, state: "completed", description: c.description, updatedAt: c.createdAt });
+          if (!seen.has(c.branch)) tasks.push({ branch: c.branch, taskId: c.taskId, state: "completed", description: c.description, originalPrompt: c.originalPrompt ?? "", updatedAt: c.createdAt });
         }
         const terms = q.split(/\s+/).filter(Boolean);
         const matched = terms.length
           ? tasks.filter((t) => {
-              const hay = `${t.branch} ${t.taskId} ${t.description}`.toLowerCase();
+              const hay = `${t.branch} ${t.taskId} ${t.description} ${t.originalPrompt}`.toLowerCase();
               return terms.every((w) => hay.includes(w));
             })
           : tasks;
         const out = matched
           .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
           .slice(0, 50)
-          .map((t) => ({ ...t, description: t.description.slice(0, 240) }));
+          .map((t) => ({ ...t, description: t.description.slice(0, 240), originalPrompt: t.originalPrompt.slice(0, 240) }));
         return send(res, 200, "application/json", JSON.stringify({ tasks: out }));
       }
 

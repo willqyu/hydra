@@ -53,6 +53,24 @@ export interface ClaudeAgentRunnerOptions {
   logger?: (m: string) => void;
 }
 
+/**
+ * A brief section that preserves the verbatim original user request the task was
+ * derived from, so a decomposed sub-task keeps the overarching goal. Empty when
+ * there's no separate original (a hand-written task, or a single-worker plan where
+ * the description already IS the request). The scope guardrail matters: without
+ * it a worker handed the whole original prompt may try to build all of it.
+ */
+export function originalRequestLines(ctx: WorkerContext): string[] {
+  const orig = ctx.originalPrompt?.trim();
+  if (!orig || orig === ctx.description.trim()) return [];
+  return [
+    "",
+    "Original request — the overall user goal this task is one part of. Use it for",
+    "context and to resolve ambiguity, but implement ONLY the Task above:",
+    orig,
+  ];
+}
+
 // Dynamic seed only — the behavioral guidance (incremental commits, scope, no
 // wrap-up) arrives as the worker's system prompt (config DEFAULT_PROMPTS.worker),
 // so it's editable in Settings and lives in exactly one place.
@@ -63,6 +81,7 @@ function defaultPrompt(ctx: WorkerContext): string {
     "",
     "Task:",
     ctx.description,
+    ...originalRequestLines(ctx),
   ].join("\n");
 }
 

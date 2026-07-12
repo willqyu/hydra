@@ -112,6 +112,9 @@ async function cmdRun(f: Flags): Promise<void> {
   // A file-level (or session) target applies to any task that didn't name its own.
   const target = (Array.isArray(parsed) ? undefined : parsed.targetBranch) || (await loadSession(repo)).targetBranch;
   if (target) for (const t of tasks) if (!t.targetBranch) t.targetBranch = target;
+  // A file-level original prompt is preserved on any task that didn't carry its own.
+  const original = Array.isArray(parsed) ? undefined : (parsed.originalPrompt ?? parsed.description);
+  if (original && String(original).trim()) for (const t of tasks) if (!t.originalPrompt) t.originalPrompt = String(original).trim();
   await runFleet(repo, tasks, f, { concurrency: parsed.concurrency, baseRef: parsed.baseRef, model: parsed.model });
 }
 
@@ -183,6 +186,11 @@ async function cmdPlan(f: Flags): Promise<void> {
   // one branch: an explicit request target wins, else the session's active target.
   const targetBranch = req.targetBranch?.trim() || (await loadSession(repo)).targetBranch;
   if (targetBranch) for (const t of plan.tasks) t.targetBranch = targetBranch;
+
+  // Preserve the verbatim original user prompt on every task, so each worker's
+  // brief (and its durable checkpoint) keeps the overarching goal even after the
+  // supervisor narrows the fleet into per-branch sub-briefs.
+  for (const t of plan.tasks) t.originalPrompt = originalDesc;
 
   console.log(
     plan.single

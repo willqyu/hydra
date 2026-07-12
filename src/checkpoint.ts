@@ -15,6 +15,9 @@ export interface Checkpoint {
   head: string;
   /** The task spec, so a rehydrated agent knows what it was building. */
   description: string;
+  /** The verbatim original user request this branch's task was derived from,
+   *  preserved so the overarching goal survives on the branch's durable record. */
+  originalPrompt?: string;
   /** Distilled context the worker handed back (decisions, intent, gotchas). */
   context?: string;
   createdAt: string;

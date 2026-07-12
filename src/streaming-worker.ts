@@ -3,6 +3,7 @@ import { defaultClaudeBin, shouldUseShell } from "./claude.js";
 import { InboxManager } from "./inbox.js";
 import { HydraEvents } from "./events.js";
 import { WorktreeMonitor, sanityCheckResult } from "./worktree-guard.js";
+import { originalRequestLines } from "./worker.js";
 import type { WorkerContext, WorkerResult, WorkerRunner } from "./types.js";
 
 export interface StreamingClaudeAgentRunnerOptions {
@@ -58,6 +59,7 @@ function defaultPrompt(ctx: WorkerContext): string {
     "",
     "Task:",
     ctx.description,
+    ...originalRequestLines(ctx),
     "",
     "A human may send you further instructions or corrections as you work;",
     "incorporate them and acknowledge briefly.",
